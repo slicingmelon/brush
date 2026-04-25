@@ -5,6 +5,40 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## Unreleased
 
+### ✨ Features
+
+#### `feat(bundled): plumb pipeline pgid through ExecutionContext`
+
+Adds `process_group_id: Option<i32>` to `brush_core::commands::ExecutionContext`
+and threads it through every construction site (`execute_via_builtin_in_owned_shell`,
+`execute_via_builtin_in_parent_shell`, `execute_via_function`, `execute_via_external`,
+plus `Shell::invoke_function`). Lets the bundled-coreutils shim
+([`brush-shell/src/bundled.rs`](./brush-shell/src/bundled.rs)) read the enclosing
+pipeline's pgid back and apply it to the child `SimpleCommand` it spawns.
+
+**Effective only where `process_group` is more than a stub** — Linux/macOS via `nix`.
+Windows is a silent no-op until the job-control epic lands
+(see [`docs/planning/bundled-coreutils-pipelines.md`](./docs/planning/bundled-coreutils-pipelines.md)
+Cycle 3).
+
+This is Cycle 1 of the bundled-coreutils-pipelines plan. **By itself it does not
+change observable behavior** — the shim still returns `Completed`, so the pipeline
+spawn loop never harvests the bundled leader's pgid to apply to the rest of the
+pipeline. That is resolved in Cycle 2 (pipeline parallelism), which converts the
+shim's return shape from a finished result into a spawn handle.
+
+**Public API change**: `ExecutionContext` is `pub` and not `#[non_exhaustive]`, so
+the new field is technically observable to downstream brush-core consumers
+constructing `ExecutionContext` literals. In practice the struct is only meant
+for builtin authors, and the field defaults to `None` for all builtins that don't
+re-exec. Flagged here for SemVer transparency.
+
+**Files changed**
+
+- `brush-core/src/commands.rs` — new field + 4 plumbing sites
+- `brush-core/src/shell/funcs.rs` — set `None` on the function-invocation context
+- `brush-shell/src/bundled.rs` — read context pgid onto child `SimpleCommand`
+
 ### 🐛 Bug Fixes
 
 #### `fix(windows): suppress console-window flash on child process spawn`

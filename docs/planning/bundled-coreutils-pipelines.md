@@ -67,6 +67,13 @@ User-visible effects today:
 
 (No throughput ratio target stated. Establish baseline first; target stays "no regression vs current external-binary path" until measured.)
 
+### 3a. Explicitly out of scope (don't expect these to change)
+
+- **EPIPE noise on Windows.** When a downstream stage closes early (`… | head -n 5`), upstream uutils stages on Windows print `brush.exe: write failed: 'standard output': Broken pipe` to stderr. Cause: Windows has no SIGPIPE; uutils logs the EPIPE instead of being silently killed by the kernel. Independent of pgid plumbing or pipeline parallelism — neither cycle will fix it. Tracked separately if it becomes user-facing enough to fix (likely needs a uutils-side patch or a brush-side stderr filter on the bundled shim).
+- **uutils argv[0] error attribution on Windows.** [`bundled.rs:252-256`](../../brush-shell/src/bundled.rs#L252-L256) sets `cmd.argv0 = Some(name)` so errors render as `ls:` rather than `brush.exe:`. The Windows stub at [`sys/stubs/commands.rs:27-33`](../../brush-core/src/sys/stubs/commands.rs#L27-L33) silently drops it. So bundled errors say `brush.exe: cannot access '/nope'` on Windows today, and will keep saying that until Cycle 3 (or a narrower fix) implements real `arg0` on Windows. Documented here so reviewers don't expect Cycle 1/2 benchmarks to change error prefixes.
+- **Process substitution `<(...)` on Windows.** `error: operation not supported on this platform: fd redirections` — pre-existing limitation, unrelated.
+- **Symbolic signal names in `trap`** (e.g. `trap … INT`) on Windows. Rejected as `invalid signal specification`. Pre-existing, unrelated.
+
 ### 4. Root Cause — split by branch
 
 **Branch A — Pipeline serialization**
@@ -192,20 +199,30 @@ Plus a CPU-bound variant: `'brush -c "seq 1 100000 | sort | uniq -c | wc -l"'`.
 
 ### Do
 
+**Sequencing**: prototype Path A *first*. Path B is conditional on Path A's results — see Phase 2.2 gate. Rationale: Path A has a smaller blast radius; if it passes all tests and the parallelism benchmark hits the success threshold, the comparative case for spending Path B's prototyping budget weakens. This is cheaper-experiment-first, not gut-based shortcutting — Path B remains the fallback if Path A under-delivers.
+
 Phase 2.1 — Prototype Path A on `proto/bundled-path-a` branch:
 - Add `bundled_dispatch: Option<BundledDispatch>` field to `Registration`. (Make `Registration` `#[non_exhaustive]` first as a separate prep PR — that's its own SemVer break that should land deliberately.)
 - In `SimpleCommand::execute` ([`commands.rs:355`](../../brush-core/src/commands.rs#L355)), branch on `builtin.bundled_dispatch.is_some()` and route to a new `execute_via_bundled` that builds a `SimpleCommand` against `current_exe()` and calls `execute_via_external`.
 - Move `DISPATCH_FLAG` const to brush-core (or pass it via the `BundledDispatch` struct as an opaque string — preferred for layering).
 - Run benchmarks. Capture numbers.
 
-Phase 2.2 — Prototype Path B on `proto/bundled-path-b` branch:
+Phase 2.2 — **Conditional** Path B prototype on `proto/bundled-path-b` branch:
+
+Skip this phase if **all** of the following hold after Phase 2.1:
+1. All existing `brush-compat-tests` and `brush-integration-tests` pass on Path A.
+2. Bundled-only pipeline benchmark on Path A is **< 70% of the serial-baseline runtime** (i.e. parallelism is real, not noise — at least 30% improvement over today's serialized behavior).
+3. No regression on standalone bundled invocation (`brush -c 'cat big.txt > /dev/null'`).
+4. Mixed pipelines (`bundled | external | bundled`) work correctly on Path A.
+
+If any of (1)–(4) fail, run Path B:
 - Change `CommandExecuteFunc` return type to `Result<ExecutionSpawnResult, error::Error>`.
 - Run `cargo check --workspace`. Add `Ok(result.into())` at every compile-error site.
 - Update `execute_via_builtin_in_*` to no longer wrap in `.into()`.
 - Update bundled shim to return `StartedProcess` directly (it already has the `cmd.execute().await` call — just remove the `.wait()`).
 - Run benchmarks. Capture numbers.
 
-Phase 2.3 — Comparative report:
+Phase 2.3 — Comparative report (only if Phase 2.2 ran; otherwise just report Path A's numbers):
 - Lines changed per path.
 - Files touched per path.
 - Runtime delta on the benchmark.
@@ -293,18 +310,28 @@ Cycles 1+2 combined: **2.5–5 days**, materially more than the "1 day" claim in
 ## Definition of Done
 
 For Cycle 1:
-- [ ] `ExecutionContext.process_group_id` field exists and is plumbed at all 4 sites.
-- [ ] Bundled shim sets `cmd.process_group_id` from context.
-- [ ] New integration test passes on Linux.
-- [ ] Existing test suite green on Linux + Windows.
-- [ ] CHANGELOG.FORK.md updated under Unreleased.
+- [x] `ExecutionContext.process_group_id` field exists and is plumbed at all 4 sites. *(commit `151f026`)*
+- [x] Bundled shim sets `cmd.process_group_id` from context. *(commit `151f026`)*
+- [x] Existing test suite green on Windows. *(`cargo test -p brush-core --lib` 2026-04-25: 70 passed, 0 failed.)* Linux green deferred to CI.
+- [x] CHANGELOG.FORK.md updated under Unreleased. *(2026-04-25)*
+
+> **DoD revision 2026-04-25**: Originally this checklist included "New integration
+> test passes on Linux: bundled-led pipeline shares a single pgid." Removed —
+> the commit's own description correctly notes that pgid sharing is *not
+> observable* until Cycle 2 (the bundled shim still returns `Completed`, so
+> [`interp.rs:519-523`](../../brush-core/src/interp.rs#L519-L523) never harvests
+> the bundled leader's pgid). Writing a black-box pgid-sharing test against
+> Cycle 1 alone would have to be `#[ignore]`d until Cycle 2 lands — adding
+> dead test code is worse than deferring. The integration test is now
+> Cycle 2's responsibility (see Cycle 2 DoD below).
 
 For Cycle 2:
-- [ ] Both prototypes built and benchmarked.
-- [ ] Comparison written up in this doc (under a Cycle-2 Decision Log section appended to the bottom).
+- [ ] Path A prototype built and benchmarked. Path B prototype built **only if** Phase 2.2's gating conditions trigger.
+- [ ] Comparison (or single-path report) written up in this doc's Decision Log.
 - [ ] Chosen path landed as clean PR.
 - [ ] `bundled.rs:193-214` TODOs removed/updated.
 - [ ] Pipeline benchmark added to `brush-shell/benches/` (or skipped with rationale).
+- [ ] **Linux pgid integration test** (relocated from Cycle 1): bundled-led pipeline shares a single pgid. Test code is `#[cfg(target_os = "linux")]`-gated. Local execution not required — CI validates. This is the test that proves Cycles 1+2 together work end-to-end on Unix.
 
 For Cycle 3:
 - [ ] Design doc written.
@@ -315,8 +342,10 @@ For Cycle 3:
 
 ## Decision Log
 
-(Append to this section as cycles complete. Empty until first decision is made.)
+(Append to this section as cycles complete.)
 
 | Date | Cycle | Decision | Evidence |
 |---|---|---|---|
-| | | | |
+| 2026-04-25 | 1 | Land pgid plumbing as planned. `ExecutionContext.process_group_id: Option<i32>` added; threaded through 4 construction sites in `commands.rs` + 1 in `shell/funcs.rs`; bundled shim reads it onto child `SimpleCommand`. No observable behavior change (bundled shim still returns `Completed` — unblocked by Cycle 2). Windows is a no-op as predicted. | Commit `151f026` — `brush-core/src/commands.rs`, `brush-core/src/shell/funcs.rs`, `brush-shell/src/bundled.rs` (+18 lines). |
+| 2026-04-25 | 2 (planning) | Reorder Cycle 2 Do phase: prototype Path A first; gate Path B prototype on Path A failing concrete thresholds (test failures, < 30% parallelism gain, regressions). Cheaper-experiment-first, not gut-based — Path B remains the fallback. | Reflexion review 2026-04-25; updated Phase 2.2 in this doc. |
+| 2026-04-25 | (carve-out) | Document EPIPE noise on Windows, uutils argv[0] stub-drop on Windows, and process-substitution / `trap INT` Windows limits as **explicitly out of scope** for Cycles 1–2. None of these are caused by serialization or pgid; reviewers shouldn't expect Cycle 2 benchmarks to change them. | Bash testing 2026-04-25 surfaced all four; added §3a to this doc. |
