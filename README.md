@@ -104,16 +104,20 @@ This fork lives at [`slicingmelon/brush`](https://github.com/slicingmelon/brush)
 **Install directly from the fork's Git repository:**
 
 ```bash
-cargo install --locked --git https://github.com/slicingmelon/brush brush-shell \
-    --features experimental-bundled-coreutils,experimental-builtins
+cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --features experimental-bundled-coreutils,experimental-builtins
 ```
 
 **Install from a local clone:**
 
 ```bash
 git clone https://github.com/slicingmelon/brush
-cargo install --locked --path brush/brush-shell \
-    --features experimental-bundled-coreutils,experimental-builtins
+cargo install --locked --path brush/brush-shell --features experimental-bundled-coreutils,experimental-builtins
+```
+
+**Plain install (no experimental features):**
+
+```bash
+cargo install --locked --path brush/brush-shell
 ```
 
 You can also enable the umbrella `experimental` feature (which turns on all four experimental features — `experimental-builtins`, `experimental-bundled-coreutils`, `experimental-load`, `experimental-parser`):
@@ -125,8 +129,7 @@ cargo install --locked --git https://github.com/slicingmelon/brush brush-shell -
 **Force-reinstall over an existing build** (useful when upgrading the same version, e.g. when using brush as your Git Bash replacement via `CLAUDE_CODE_GIT_BASH_PATH`):
 
 ```bash
-cargo install --locked --path brush/brush-shell --force \
-    --features experimental-bundled-coreutils,experimental-builtins
+cargo install --locked --path brush/brush-shell --force --features experimental-bundled-coreutils,experimental-builtins
 ```
 
 **Verify both binaries:**
