@@ -3,6 +3,60 @@
 Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brush).
 Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 
+# Unreleased
+
+> Per-component version bumps planned for the next release:
+>
+> | Crate        | Previous | New     | Why                                                                  |
+> |--------------|----------|---------|----------------------------------------------------------------------|
+> | `brush-core` | 0.4.1    | 0.4.2   | Conditional `CREATE_NO_WINDOW` — fix a v0.3.1 regression where bundled coreutils produced no output when brush ran interactively from a real Windows console. |
+
+### 🐛 Bug Fixes
+
+#### `fix(windows): only suppress console window when brush has no console`
+
+Regression introduced by `0299f3a` (in v0.3.1). That fix applied
+`CREATE_NO_WINDOW` (`0x0800_0000`) unconditionally on every Windows
+child spawn to suppress a console-window flash for non-console hosts
+(Claude Code's Bash tool, editor terminals, automation harnesses).
+
+Symptom of the regression: when brush was launched **inside a real
+Windows console** (cmd / pwsh / Windows Terminal / mintty), bundled
+coreutils produced no visible output. The shell prompt rendered fine
+and inline builtins (`echo`, `pwd`, command substitution) worked, but
+`ls`, `cat`, `wc`, pipelines like `seq 1 5 | sort -r`, etc. silently
+returned with no stdout.
+
+Root cause: `CREATE_NO_WINDOW` doesn't just suppress new-console
+allocation — it also detaches the child from the parent's console.
+When stdio is inherited via `STARTUPINFO`, those handles are now
+console handles the child process is no longer attached to and
+cannot write to. Bundled coreutils re-exec brush as a shim child, so
+every bundled command went through this path and lost its output.
+The original `0299f3a` changelog claim that "stdio handles still
+inherit through `STARTUPINFO`, so pipelines and captured output are
+unaffected" was true only for pipe/file stdio, not for console-handle
+stdio.
+
+Fix: gate `CREATE_NO_WINDOW` on the parent having no attached console
+itself — `GetConsoleWindow() == NULL`. Result is cached in a
+`OnceLock<bool>`, so the spawn path stays a single syscall on first
+use and a load thereafter. No new dependencies — single
+`extern "system"` declaration for `GetConsoleWindow` from `kernel32`.
+
+| Host scenario                              | Before fix      | After fix              |
+|--------------------------------------------|-----------------|------------------------|
+| brush in cmd / pwsh / Windows Terminal     | no output       | output prints          |
+| brush -c "..." from Claude Code Bash tool  | output via pipe (worked) | output via pipe (still works), no flash |
+| brush spawned by editor terminal           | output via pipe (worked) | output via pipe (still works), no flash |
+
+Both intents — "no flash for non-console hosts" and "interactive
+output from a real console" — are now satisfied.
+
+**Files changed**
+
+- `brush-core/src/sys/tokio_process.rs` — `host_has_attached_console()` helper + conditional flag
+
 # v0.3.1 - 2026-04-25
 
 > Per-component version bumps in this release:
