@@ -39,6 +39,9 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 
+#[cfg(feature = "extras.grep")]
+mod grep_adapter;
+
 /// Signature of a bundled command's entry point — same shape as
 /// `brush-coreutils-builtins::BundledFn`. Re-declared here to avoid a
 /// dependency on that crate; consumers (brush-shell) merge the two
@@ -80,6 +83,17 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     #[cfg(feature = "extras.awk")]
     {
         m.insert("awk".to_string(), awk_adapter as BundledFn);
+    }
+
+    #[cfg(feature = "extras.grep")]
+    {
+        // Both names dispatch to the same adapter — matches upstream
+        // README's "installed binary is called `grep`" intent and gives
+        // users an explicit `fastgrep` alias when they want to be sure
+        // they're hitting the bundled implementation rather than a
+        // PATH `grep`.
+        m.insert("grep".to_string(), grep_adapter::grep_main as BundledFn);
+        m.insert("fastgrep".to_string(), grep_adapter::grep_main as BundledFn);
     }
 
     m

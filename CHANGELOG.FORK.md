@@ -10,8 +10,8 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 > | Crate                  | Previous | New     | Why                                                                  |
 > |------------------------|----------|---------|----------------------------------------------------------------------|
 > | `brush-core`           | 0.4.1    | 0.4.2   | Conditional `CREATE_NO_WINDOW` — fix a v0.3.1 regression where bundled coreutils produced no output when brush ran interactively from a real Windows console. |
-> | `brush-bundled-extras` | 0.1.0    | 0.1.2   | Cycle 0a — wire `uutils/sed = "0.1.1"` via `sed_adapter` (`extras.sed` / `extras.uutils-sed-all` features). Cycle 0c-revised — wire `pegasusheavy/awk-rs = "0.1.0"` via `awk_adapter` (`extras.awk` / `extras.awk-rs-all` features). Both per `posixutils-rs-integration.md`. |
-> | `brush-shell`          | 0.3.1    | 0.3.3   | New `experimental-bundled-extras-uutils-sed` (Cycle 0a) and `experimental-bundled-extras-awk-rs` (Cycle 0c-revised) feature flags; `bundled.rs` cfg-gate extended to merge the extras registry when only one of them is enabled. |
+> | `brush-bundled-extras` | 0.1.0    | 0.1.3   | Cycle 0a — wire `uutils/sed = "0.1.1"` via `sed_adapter` (`extras.sed` / `extras.uutils-sed-all` features). Cycle 0c-revised — wire `pegasusheavy/awk-rs = "0.1.0"` via `awk_adapter` (`extras.awk` / `extras.awk-rs-all` features). Cycle 0b-revised — wire `awnion/fastgrep = "0.1.8"` via `grep_adapter::grep_main` registered as both `grep` and `fastgrep` (`extras.grep` / `extras.fastgrep-all` features). All per `posixutils-rs-integration.md`. |
+> | `brush-shell`          | 0.3.1    | 0.3.4   | New `experimental-bundled-extras-uutils-sed` (Cycle 0a), `experimental-bundled-extras-awk-rs` (Cycle 0c-revised), and `experimental-bundled-extras-fastgrep` (Cycle 0b-revised) feature flags; `bundled.rs` cfg-gate extended to merge the extras registry when only one of them is enabled. The `-fastgrep` flag carries an MSRV requirement of rustc ≥ 1.92 (above the workspace MSRV of 1.88.0) — opt-in only. |
 
 ### 📋 Process / Decisions
 
@@ -43,6 +43,114 @@ production adapter follows in the next commit on this branch.
 Full decision log entry in the planning doc.
 
 ### ✨ Features
+
+#### `feat(bundled): ship grep via awnion/fastgrep crates.io dep, dual-name registration`
+
+Cycle 0b-revised PR 2 of [`docs/planning/posixutils-rs-integration.md`](./docs/planning/posixutils-rs-integration.md).
+Final gap-filler from that plan to land. PR 1 (the gates commit
+recorded immediately above) verified MSRV + Windows-build green; this
+commit ships the production adapter.
+
+`grep` and `fastgrep` are now both available as bundled builtins
+behind a single feature flag, dispatching to the same adapter. The
+implementation is a clean crates.io dep on
+[`awnion/fastgrep`](https://crates.io/crates/fastgrep) v0.1.8 — no
+vendoring. Upstream advertises a "drop-in replacement for GNU grep"
+with **2–12× faster** Criterion-measured throughput (sparse-literal
+`-rn` 4.4×, dense `-rc` 12×, regex `-rn` 9.4×). SIMD via `memchr`,
+parallel by default, lazy trigram index. Dual MIT / Apache-2.0.
+
+Upstream's lib exposes the search engine as public modules
+(`cli` / `output` / `pattern` / `searcher` / `threadpool` / `trigram`
+/ `walker`) but the orchestration lives in `src/bin/grep.rs::main()`
+and is not a `pub fn`. The brush-side adapter
+([`brush-bundled-extras/src/grep_adapter.rs`](./brush-bundled-extras/src/grep_adapter.rs))
+ports that orchestration line-for-line, with three small adaptations:
+
+1. `Cli::try_parse_from(args)` instead of `Cli::parse()` — consumes
+   the `Vec<OsString>` from the bundled-dispatch path rather than
+   `std::env::args_os()`.
+2. `ExitCode` returns flattened to `i32` to match brush's `BundledFn`
+   signature.
+3. Upstream's one `expect("failed to spawn walker thread")` replaced
+   with explicit error handling (brush forbids `clippy::expect_used`).
+4. Version output uses the hardcoded version string `"0.1.8"` and
+   skips upstream's `env!("GIT_SHA")` reference (brush-bundled-extras
+   has no `build.rs` setting that env var).
+
+**Dual-name registration** (matches upstream README's "installed
+binary is called `grep`" intent):
+
+```rust
+m.insert("grep".to_string(), grep_adapter::grep_main as BundledFn);
+m.insert("fastgrep".to_string(), grep_adapter::grep_main as BundledFn);
+```
+
+Both names dispatch to the same adapter, so users can pick whichever
+makes their intent clear.
+
+| Layer | What landed |
+|---|---|
+| `brush-bundled-extras/Cargo.toml` | `fastgrep = "0.1.8"` + `clap = "4"` + `kanal = "0.1"` optional deps; new features `extras.grep` and `extras.fastgrep-all`; `extras.all` aggregate now layers in `extras.fastgrep-all` (which transitively bumps the umbrella `experimental-bundled-extras` flag's MSRV to 1.92). |
+| `brush-bundled-extras/src/grep_adapter.rs` | New module — port of upstream `src/bin/grep.rs::main()` plus its `run_single_file` / `run_stdin` / `run_files` helpers. ~370 lines. |
+| `brush-bundled-extras/src/lib.rs` | Module declaration `mod grep_adapter` + dual-name registration in `bundled_commands()`. |
+| `brush-shell/Cargo.toml` | New `experimental-bundled-extras-fastgrep` feature flag, with explicit MSRV note in the comment. |
+| `brush-shell/src/bundled.rs` | `cfg(any(...))` gate around the bundled-extras registry merge extended. |
+
+**MSRV gate**: fastgrep declares `rust-version = "1.92"` while brush
+workspace MSRV stays at `1.88.0`. Per the gate-0 decision (option b,
+"feature-conditional MSRV"), enabling `experimental-bundled-extras-fastgrep`
+on a toolchain older than 1.92 triggers a Cargo dep-resolution error
+at build time. Users on 1.88–1.91 can either upgrade their toolchain
+or stick with the other extras flags. Documented in the brush-shell
+flag's inline comment.
+
+**Smoke verification on Windows** (rustc 1.95.0 host build):
+
+| Command | Result |
+|---|---|
+| `brush -c "type grep"` | `grep is a shell builtin` |
+| `brush -c "type fastgrep"` | `fastgrep is a shell builtin` |
+| `brush -c "grep --version"` | fastgrep banner with `[index v1]` |
+| `brush -c "fastgrep --version"` | identical (alias dispatches to same adapter) |
+| `brush -c "echo hello \| grep h"` | `hello` |
+| `brush -c "grep -rn 'fn main' brush-shell/src"` | 2 matches found |
+| `brush -c "grep -rn 'doesnotexistxyz' brush-shell/src"` | exit 1 |
+| `brush -c "printf 'apple\nbanana\ncherry\n' \| grep -i CHE"` | `cherry` |
+| `brush -c "grep -rn 'fn main' brush-shell/src \| head -2"` (with bundled head) | 2 lines, exit 0, EPIPE-safe |
+
+**Three intentional behavioral deviations from GNU grep** (inherited
+from fastgrep upstream — brush ships the upstream defaults verbatim,
+no overrides):
+
+1. **Default 100 MiB file size limit** — files larger than this are
+   skipped with a stderr warning. Override with `FASTGREP_NO_LIMIT=1`
+   or `--max-file-size=<BYTES>`.
+2. **Default 15000-byte line truncation** — extremely long lines are
+   truncated. Override with `--max-line-len=0`.
+3. **Output order is non-deterministic** — fastgrep is parallel by
+   default; per-file output order across multi-file searches depends
+   on thread scheduling. Force single-threaded with `-j1` for
+   deterministic ordering.
+
+These are AI-agent-friendly defaults (fastgrep's primary audience
+overlaps with Claude Code's Bash tool) but may surprise users coming
+from GNU grep. Brush takes them as-is.
+
+**GNU compat caveat** — fastgrep's [`GNU_GREP_COMPAT.md`](https://github.com/awnion/fastgrep/blob/main/GNU_GREP_COMPAT.md)
+catalogues ~10 GNU grep flags that are unsupported (`-G`, `-P`, `-z`,
+`--line-buffered`, `-R`, `-d`, `-D`, `--binary-files`, `-NUM`).
+Common interactive flags (`-rn`, `-i`, `-c`, `-l`, `-F`, `-E`,
+`-A`/`-B`/`-C`, `-o`, `--include`/`--exclude`, color) are all
+supported.
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — add `fastgrep` + `clap` + `kanal` optional deps + features
+- `brush-bundled-extras/src/grep_adapter.rs` — new module porting upstream `bin/grep.rs`
+- `brush-bundled-extras/src/lib.rs` — `mod grep_adapter` + dual-name registration
+- `brush-shell/Cargo.toml` — `experimental-bundled-extras-fastgrep` flag with MSRV note
+- `brush-shell/src/bundled.rs` — extend cfg gate
 
 #### `feat(bundled): ship awk via pegasusheavy/awk-rs crates.io dep`
 

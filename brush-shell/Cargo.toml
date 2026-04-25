@@ -1,7 +1,7 @@
 [package]
 name = "brush-shell"
 description = "Rust-implemented shell focused on POSIX and bash compatibility"
-version = "0.3.3"
+version = "0.3.4"
 authors.workspace = true
 categories.workspace = true
 edition.workspace = true
@@ -116,6 +116,20 @@ experimental-bundled-extras-awk-rs = [
     "dep:brush-bundled-extras",
     "brush-bundled-extras/extras.awk-rs-all",
 ]
+# Explicit fastgrep-only opt-in (grep + fastgrep aliases). See
+# `docs/planning/posixutils-rs-integration.md` Cycle 0b-revised.
+#
+# **MSRV REQUIREMENT**: enabling this flag requires rustc ≥ 1.92
+# (fastgrep's MSRV). The brush workspace MSRV (1.88.0) intentionally
+# stays unchanged — this is a per-flag, opt-in MSRV bump per gate 0
+# decision (option b, "feature-conditional MSRV"). Users on rustc
+# 1.88–1.91 get a Cargo dep-resolution error at build time if they
+# enable this flag; they can either upgrade their toolchain or stick
+# with the other extras flags.
+experimental-bundled-extras-fastgrep = [
+    "dep:brush-bundled-extras",
+    "brush-bundled-extras/extras.fastgrep-all",
+]
 experimental-load = ["dep:serde_json", "brush-core/serde"]
 experimental-parser = [
     "brush-core/experimental-parser",
@@ -129,7 +143,7 @@ workspace = true
 [dependencies]
 brush-core = { version = "^0.4.0", path = "../brush-core" }
 brush-builtins = { version = "^0.1.0", path = "../brush-builtins" }
-brush-bundled-extras = { version = "^0.1.2", path = "../brush-bundled-extras", optional = true }
+brush-bundled-extras = { version = "^0.1.3", path = "../brush-bundled-extras", optional = true }
 brush-coreutils-builtins = { version = "^0.1.0", path = "../brush-coreutils-builtins", optional = true }
 brush-experimental-builtins = { version = "^0.1.0", path = "../brush-experimental-builtins", optional = true }
 clap = { version = "4.6.0", features = ["derive", "env"] }

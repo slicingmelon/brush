@@ -1,7 +1,7 @@
 [package]
 name = "brush-bundled-extras"
 description = "Adapter wrappers for non-uutils-coreutils utilities bundled into brush-shell (findutils/diffutils/procps/grep/sed/awk as available)"
-version = "0.1.2"
+version = "0.1.3"
 categories.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -30,6 +30,14 @@ default = []
 # Per-utility features (pegasusheavy/awk-rs 0.1.0).
 'extras.awk' = ["dep:awk-rs"]
 
+# Per-utility features (awnion/fastgrep 0.1.8). NOTE: enabling this
+# requires rustc ≥ 1.92 — fastgrep's MSRV is above brush's workspace
+# MSRV (1.88.0). Workspace MSRV intentionally NOT bumped; the
+# feature-conditional MSRV is documented per the plan's gate 0
+# decision (option b). See `docs/planning/posixutils-rs-integration.md`
+# Cycle 0b-revised.
+'extras.grep' = ["dep:fastgrep", "dep:clap", "dep:kanal"]
+
 # Source-grouped aggregates.
 'extras.findutils-all' = [
     'extras.find',
@@ -41,15 +49,24 @@ default = []
 'extras.awk-rs-all' = [
     'extras.awk',
 ]
+'extras.fastgrep-all' = [
+    'extras.grep',
+]
 
 # Top-level aggregate. Layers in everything the cycle has wired so far —
 # findutils (Cycle 2), uutils/sed (posixutils-rs-integration Cycle 0a),
-# awk-rs (Cycle 0c-revised). diffutils (Cycle 3), procps (Cycle 4), and
-# grep (0b) extend this set as they land.
+# awk-rs (Cycle 0c-revised), fastgrep (Cycle 0b-revised). diffutils
+# (Cycle 3) and procps (Cycle 4) extend this set as they land.
+#
+# `extras.all` enabling `extras.fastgrep-all` means consumers of
+# `experimental-bundled-extras` (the umbrella flag) inherit fastgrep's
+# rustc ≥ 1.92 requirement transitively. Documented in the brush-shell
+# flag below.
 'extras.all' = [
     'extras.findutils-all',
     'extras.uutils-sed-all',
     'extras.awk-rs-all',
+    'extras.fastgrep-all',
 ]
 
 [lints]
@@ -68,3 +85,15 @@ sed = { version = "0.1.1", optional = true }
 # only. CI tests Windows. See
 # `docs/planning/posixutils-rs-integration.md` Cycle 0c-revised.
 awk-rs = { version = "0.1.0", optional = true }
+# awnion/fastgrep is a "drop-in replacement for GNU grep" with public
+# `[lib]` modules (cli/output/pattern/searcher/threadpool/trigram/
+# walker) and a bin target literally named `grep`; the adapter mirrors
+# upstream `src/bin/grep.rs::main()`. License MIT/Apache-2.0.
+# **fastgrep MSRV is 1.92** — above brush workspace MSRV (1.88) — so
+# enabling the feature requires rustc ≥ 1.92. See
+# `docs/planning/posixutils-rs-integration.md` Cycle 0b-revised.
+# Also pulls `clap` and `kanal` for the adapter; those are used here as
+# direct deps too, gated on the same feature.
+fastgrep = { version = "0.1.8", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+kanal = { version = "0.1", optional = true }
