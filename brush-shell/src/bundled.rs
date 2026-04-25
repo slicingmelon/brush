@@ -299,18 +299,11 @@ fn shim_execute<SE: ShellExtensions>(
 fn shim_registration<SE: ShellExtensions>() -> Option<Registration<SE>> {
     let exe_path = self_exe()?.clone();
     Some(
-        Registration {
-            execute_func: shim_execute::<SE>,
-            content_func: shim_content,
-            disabled: false,
-            special_builtin: false,
-            declaration_builtin: false,
-            bundled_dispatch: None,
-        }
-        .with_bundled_dispatch(brush_core::builtins::BundledDispatch {
-            exe_path,
-            dispatch_flag: DISPATCH_FLAG.to_string(),
-        }),
+        brush_core::builtins::raw_builtin::<SE>(shim_execute::<SE>, shim_content)
+            .with_bundled_dispatch(brush_core::builtins::BundledDispatch {
+                exe_path,
+                dispatch_flag: DISPATCH_FLAG.to_string(),
+            }),
     )
 }
 

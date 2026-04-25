@@ -162,9 +162,17 @@ If unsuccessful: most likely cause is that `interp.rs:519-523` harvests pgid onl
 
 ## PDCA Cycle 2 — Pipeline parallelism (Path A vs B by experiment)
 
+> **Status**: closed 2026-04-25. Path A landed as an architectural cleanup,
+> *not* as a parallelism unlock. The original hypothesis below was based on
+> a misread of the orchestrator code; see Decision Log entry and the
+> "What actually happened" section after this Plan block.
+
 ### Plan
 
-**Hypothesis**: Routing the bundled shim through `execute_via_external`-shaped machinery (so it returns `StartedProcess` instead of `Completed`) restores pipeline parallelism without regressing standalone bundled invocation.
+**Hypothesis** *(invalidated 2026-04-25 — kept for historical context)*:
+Routing the bundled shim through `execute_via_external`-shaped machinery
+(so it returns `StartedProcess` instead of `Completed`) restores pipeline
+parallelism without regressing standalone bundled invocation.
 
 **Two candidate paths — decide by prototype, not prescription:**
 
@@ -253,6 +261,55 @@ If chosen path's prototype works:
 
 If both prototypes fail (unlikely): re-enter root-cause analysis. Likely culprit would be a deeper architectural issue with `spawn_pipeline_processes`'s assumption that "spawn" is non-blocking — possibly an issue with the `tokio::task::spawn_blocking` path for owned-shell builtins.
 
+### What actually happened (added 2026-04-25)
+
+Path A's prototype landed and works, but the empirical measurement
+*invalidated the cycle's framing*. Pre-Path-A and post-Path-A pipelines
+were equally parallel — both achieve concurrent stage execution, just
+through different mechanisms.
+
+**Empirical evidence on Windows**:
+
+| Workload                            | Pre-Path-A (release) | Post-Path-A (debug) |
+|-------------------------------------|----------------------|---------------------|
+| `sleep 2 \| sleep 2 \| sleep 2`     | 2.4s                 | 2.8s                |
+| `seq 1 5_000_000 \| wc -l`          | 0.39s                | 0.87s (debug noise) |
+
+Both binaries achieve parallelism. If pre-Path-A had been serializing,
+the 3-stage sleep pipeline would have run ~6s; it ran in 2.4s.
+
+**Why the original hypothesis was wrong**:
+[`commands.rs:466-490`](../../brush-core/src/commands.rs#L466-L490) —
+`execute_via_builtin_in_owned_shell` wraps the builtin call in
+`tokio::task::spawn_blocking` and returns
+`ExecutionSpawnResult::StartedTask(join_handle)`. The pipeline
+orchestrator at [`interp.rs:514-516`](../../brush-core/src/interp.rs#L514-L516)
+awaits this future, but `spawn_blocking` returns immediately — the
+actual builtin execution (including the shim's `wait_result =
+spawn_result.wait().await?` for the brush child) runs concurrently on
+the tokio blocking thread pool.
+
+So for a 3-stage `bundled | bundled | bundled` pipeline pre-Path-A:
+- Stages 1 and 2 ran in owned-shell subshells via spawn_blocking (parallel).
+- Stage 3 ran in the parent shell via the inline shim (sequentially with the others' completion, but only this stage took 2s).
+- Total: max(stage_durations) ≈ 2-3s, **not** sum(stage_durations) ≈ 6s.
+
+The original Cycle 2 framing missed the `StartedTask` variant when first analyzing the dispatch table. The plan stated *"the bundled shim awaits child to completion before returning"* causes serialization — true ONLY for the last-stage-in-current-shell (lastpipe) path, which is one stage out of N.
+
+**What Path A actually delivers**:
+
+| Property                       | Pre-Path-A                                    | Post-Path-A                                  |
+|--------------------------------|-----------------------------------------------|----------------------------------------------|
+| Pipeline parallelism           | ✅ (via `spawn_blocking` + `StartedTask`)     | ✅ (via `execute_via_external` + `StartedProcess`) |
+| Thread overhead per pipe stage | one `spawn_blocking` thread                   | none (direct OS spawn)                       |
+| Pgid propagation               | ✅ (Cycle 1 plumbing + manual on shim)        | ✅ (via standard `execute_via_external` path) |
+| Architecture                   | Bundled commands go through builtin path with shim | Bundled commands routed through same machinery as ordinary `PATH` commands — uniform |
+| LoC in shim                    | ~50 (`shim_execute` does spawn+wait)          | ~10 (`shim_execute` is a defensive stub)     |
+
+Real but smaller wins than the plan claimed. Path A is a refactor / cleanup, not a parallelism unlock.
+
+**Phase 2.2 (Path B prototype) skipped**: Path A meets criteria (1), (3), (4) of the gating; criterion (2) ("< 70% of serial-baseline runtime, ≥30% improvement") was based on the now-invalidated hypothesis. There is no parallelism gap to close, so Path B's value would have been an even larger SemVer break (changing `CommandExecuteFunc`'s return type and `.into()`-wrapping ~50 builtins) for no functional benefit. Correctly skipped.
+
 If chosen path passes Linux but fails Windows parallelism: Windows likely needs different handling (re-exec spawn cost dominates). Document, ship Linux-only behavior, open follow-up issue.
 
 ---
@@ -325,13 +382,13 @@ For Cycle 1:
 > dead test code is worse than deferring. The integration test is now
 > Cycle 2's responsibility (see Cycle 2 DoD below).
 
-For Cycle 2:
-- [ ] Path A prototype built and benchmarked. Path B prototype built **only if** Phase 2.2's gating conditions trigger.
-- [ ] Comparison (or single-path report) written up in this doc's Decision Log.
-- [ ] Chosen path landed as clean PR.
-- [ ] `bundled.rs:193-214` TODOs removed/updated.
-- [ ] Pipeline benchmark added to `brush-shell/benches/` (or skipped with rationale).
-- [ ] **Linux pgid integration test** (relocated from Cycle 1): bundled-led pipeline shares a single pgid. Test code is `#[cfg(target_os = "linux")]`-gated. Local execution not required — CI validates. This is the test that proves Cycles 1+2 together work end-to-end on Unix.
+For Cycle 2 — **landed as architectural cleanup, not parallelism unlock**:
+- [x] Path A prototype built and measured. *(commit `8936677` on `proto/bundled-path-a`, cherry-picked as `86a8c1c`.)* Phase 2.2 (Path B prototype) explicitly skipped — see "What actually happened" above. The gating criterion ("≥30% parallelism improvement") was based on the now-invalidated hypothesis; pre-Path-A was already parallel via `spawn_blocking` + `StartedTask`. There was no parallelism gap for Path B to close, so its larger SemVer break would have been pure cost.
+- [x] Single-path report written up in this doc's "What actually happened" section above and in the Decision Log.
+- [x] Chosen path landed (Path A). `Registration` also marked `#[non_exhaustive]` and the helper factory `raw_builtin()` added so brush-shell can construct shim registrations without a struct literal — addresses the open question on `#[non_exhaustive]` deferred from earlier.
+- [x] `bundled.rs:193-214` TODOs removed. The shim's `shim_execute` is now an unreachable defensive fallback; new doc comment supersedes the prior TODO block. Path A's routing handles both old TODOs (pgid + serialization, the second of which turned out to be a non-issue).
+- [ ] Pipeline benchmark added to `brush-shell/benches/` — **skipped with rationale**: the empirical timings in "What actually happened" demonstrate parallelism was already achieved; a microbenchmark wouldn't surface a meaningful delta between pre- and post-Path-A. If a benchmark becomes useful later (e.g., for measuring `spawn_blocking` thread overhead in long pipelines), file as a follow-up.
+- [x] **Linux pgid integration test** added at `brush-shell/tests/bundled_pgid.rs`, gated with `#![cfg(target_os = "linux")]`. Test runs `cat /proc/self/stat | sh -c 'ps -o pgid= -p $$'` and asserts the bundled cat's pgid equals the sh stage's pgid. CI validates on Linux runners; local Windows builds compile-skip the file.
 
 For Cycle 3:
 - [ ] Design doc written.
@@ -349,3 +406,4 @@ For Cycle 3:
 | 2026-04-25 | 1 | Land pgid plumbing as planned. `ExecutionContext.process_group_id: Option<i32>` added; threaded through 4 construction sites in `commands.rs` + 1 in `shell/funcs.rs`; bundled shim reads it onto child `SimpleCommand`. No observable behavior change (bundled shim still returns `Completed` — unblocked by Cycle 2). Windows is a no-op as predicted. | Commit `151f026` — `brush-core/src/commands.rs`, `brush-core/src/shell/funcs.rs`, `brush-shell/src/bundled.rs` (+18 lines). |
 | 2026-04-25 | 2 (planning) | Reorder Cycle 2 Do phase: prototype Path A first; gate Path B prototype on Path A failing concrete thresholds (test failures, < 30% parallelism gain, regressions). Cheaper-experiment-first, not gut-based — Path B remains the fallback. | Reflexion review 2026-04-25; updated Phase 2.2 in this doc. |
 | 2026-04-25 | (carve-out) | Document EPIPE noise on Windows, uutils argv[0] stub-drop on Windows, and process-substitution / `trap INT` Windows limits as **explicitly out of scope** for Cycles 1–2. None of these are caused by serialization or pgid; reviewers shouldn't expect Cycle 2 benchmarks to change them. | Bash testing 2026-04-25 surfaced all four; added §3a to this doc. |
+| 2026-04-25 | 2 (closed, hypothesis invalidated) | Path A landed as architectural cleanup, not parallelism unlock. Empirical measurement found pre-Path-A pipelines were *already parallel* — `commands.rs:466-490` wraps owned-shell builtin calls in `tokio::task::spawn_blocking` returning `ExecutionSpawnResult::StartedTask`, which the orchestrator awaits non-blockingly. The original Cycle 2 framing ("the bundled shim awaits child to completion → pipeline serializes") missed `StartedTask` in the dispatch table. Sleep-pipeline timings: pre-Path-A 2.4s, post-Path-A 2.8s for `sleep 2 \| sleep 2 \| sleep 2`; both demonstrate parallelism (a serialized version would be ~6s). Phase 2.2 (Path B prototype) skipped — its gating criterion was based on the invalidated hypothesis. Path A still landed because it's a real if smaller win: removes the `spawn_blocking` thread-pool hop, makes pgid handling uniform with external commands, replaces the inline shim path with direct external-spawn dispatch. `Registration` also marked `#[non_exhaustive]` (resolves earlier open question); new `raw_builtin()` helper on brush-core lets brush-shell construct registrations without struct-literal access. Linux pgid integration test added at `brush-shell/tests/bundled_pgid.rs`, gated to `cfg(target_os = "linux")`. | Commits `8936677` (prototype) and `86a8c1c` (cherry-pick to working branch); empirical timings on Windows; full analysis in this doc's "What actually happened" section. |

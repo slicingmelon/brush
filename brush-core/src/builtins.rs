@@ -175,7 +175,17 @@ pub struct BundledDispatch {
 }
 
 /// Encapsulates a registration for a built-in command.
+///
+/// Marked `#[non_exhaustive]` so that future field additions (similar to
+/// `bundled_dispatch` added alongside this attribute) are not SemVer-
+/// breaking for downstream consumers. Outside this crate, construct
+/// `Registration` via the [`simple_builtin`], [`builtin`], [`decl_builtin`],
+/// or [`raw_arg_builtin`] factory functions, then chain
+/// [`Registration::special`] / [`Registration::with_bundled_dispatch`] as
+/// needed. Struct-literal construction is reserved for the defining
+/// crate.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Registration<SE: extensions::ShellExtensions> {
     /// Function to execute the builtin.
     pub execute_func: CommandExecuteFunc<SE>,
@@ -418,6 +428,32 @@ pub trait SimpleCommand {
         context: commands::ExecutionContext<'_, SE>,
         args: I,
     ) -> Result<results::ExecutionResult, error::Error>;
+}
+
+/// Returns a built-in command registration with raw `execute_func` and
+/// `content_func` pointers, bypassing the trait-based factories below.
+///
+/// Use this when the registration's behavior doesn't fit the
+/// [`Command`] / [`SimpleCommand`] / [`DeclarationCommand`] traits — for
+/// example, the bundled-coreutils shim in `brush-shell`, which dispatches
+/// to upstream uutils' `uumain` functions via [`BundledDispatch`] and
+/// provides its own non-trait `content_func` for `help`/`type`.
+///
+/// Necessary because [`Registration`] is `#[non_exhaustive]`; downstream
+/// consumers can no longer construct it via struct literal.
+#[must_use]
+pub fn raw_builtin<SE: extensions::ShellExtensions>(
+    execute_func: CommandExecuteFunc<SE>,
+    content_func: CommandContentFunc,
+) -> Registration<SE> {
+    Registration {
+        execute_func,
+        content_func,
+        disabled: false,
+        special_builtin: false,
+        declaration_builtin: false,
+        bundled_dispatch: None,
+    }
 }
 
 /// Returns a built-in command registration, given an implementation of the

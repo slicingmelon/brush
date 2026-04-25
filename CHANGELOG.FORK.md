@@ -5,6 +5,95 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 
 ## Unreleased
 
+### ♻️ Refactors
+
+#### `refactor(bundled): route bundled dispatch through external-spawn machinery`
+
+Cycle 2 of [`docs/planning/bundled-coreutils-pipelines.md`](./docs/planning/bundled-coreutils-pipelines.md).
+**Architectural cleanup** — the cycle was originally framed as a
+parallelism unlock, but empirical measurement showed pre-Path-A
+pipelines were already parallel (via `tokio::task::spawn_blocking` +
+`ExecutionSpawnResult::StartedTask` for owned-shell builtins). Path A
+still landed because it delivers real, if smaller, wins:
+
+- **Bundled commands now route through the same machinery as ordinary
+  PATH commands.** `SimpleCommand::execute` recognizes a new
+  `Registration::bundled_dispatch` field and short-circuits to a new
+  `execute_via_bundled` method that calls the existing
+  `execute_via_external` path. The shim's spawn-and-wait indirection is
+  replaced by direct external-spawn dispatch.
+- **No `spawn_blocking` thread per pipeline stage.** Bundled stages are
+  spawned directly via `sys::process::spawn`, returning
+  `ExecutionSpawnResult::StartedProcess` — same shape as PATH commands.
+  Small win for long pipelines.
+- **Pgid handling is uniform with external commands.** Bundled stages
+  now honor `cmd.process_group_id` via the same code path
+  (`commands.rs::execute_external_command`) that PATH commands use,
+  instead of via a shim-specific copy.
+- **Single `ExecutionSpawnResult` variant for bundled and external
+  commands.** Previously bundled returned `StartedTask` (tokio join
+  handle) and external returned `StartedProcess` (OS child). Now both
+  are `StartedProcess` — removing a divergence the orchestrator code
+  had to handle.
+
+**Public API additions to `brush-core`** (SemVer-relevant):
+
+- New `BundledDispatch` struct in `brush-core::builtins`, carrying an
+  executable path and an opaque dispatch flag. Set on a
+  `Registration` via `with_bundled_dispatch()`.
+- New `Registration::bundled_dispatch: Option<BundledDispatch>` field.
+- `Registration` is now `#[non_exhaustive]` so future field additions
+  don't break downstream consumers.
+- New `raw_builtin(execute_func, content_func)` factory function for
+  consumers (like `brush-shell::bundled`) that don't fit the
+  trait-based factories.
+- `Registration::special()` is no longer `const fn` (the
+  `BundledDispatch::exe_path: PathBuf` adds a non-const-evaluatable
+  destructor). Semantic behavior is unchanged.
+
+**Path B prototype skipped**: the original plan called for prototyping
+both Path A (new field on `Registration`) and Path B (changing
+`CommandExecuteFunc` return type to `ExecutionSpawnResult`) and
+choosing by measurement. The decision rule was gated on parallelism
+gain. Once empirical measurement showed there was no parallelism gap
+to close, Path B's much larger SemVer break (modifying the type alias
+all ~50 builtin sites consume) had no payoff. Correctly skipped.
+
+**Linux pgid integration test added** at
+`brush-shell/tests/bundled_pgid.rs`, gated to `cfg(target_os = "linux")`.
+Runs `cat /proc/self/stat | sh -c 'ps -o pgid= -p $$'` and asserts that
+bundled `cat`'s pgid (read from `/proc/self/stat` field 5) equals the
+`sh` stage's pgid (printed by `ps`). End-to-end check that Cycle 1
+plumbing + Cycle 2 routing compose correctly. CI validates on Linux
+runners; Windows compiles past it via the file-level cfg gate.
+
+**Empirical timings on Windows** (debug build vs installed release):
+
+| Workload                                   | Pre-Path-A (release) | Path A (debug) |
+|--------------------------------------------|----------------------|----------------|
+| `sleep 2 \| sleep 2 \| sleep 2`            | 2.4s                 | 2.8s           |
+| `seq 1 5_000_000 \| wc -l`                 | 0.39s                | 0.87s (debug)  |
+
+Both achieve parallelism; differences are dominated by build mode, not
+orchestration shape.
+
+**Files changed**
+
+- `brush-core/src/builtins.rs` — `BundledDispatch` struct,
+  `Registration::bundled_dispatch` field, `#[non_exhaustive]`,
+  `raw_builtin()` factory, `with_bundled_dispatch()` builder,
+  `special()` loses `const fn`.
+- `brush-core/src/commands.rs` — `SimpleCommand::execute` branches on
+  `bundled_dispatch.is_some()`; new `execute_via_bundled()` method
+  builds the spawn argv and delegates to `execute_via_external`.
+- `brush-shell/src/bundled.rs` — `shim_registration` attaches
+  `BundledDispatch` via `with_bundled_dispatch`. Uses new
+  `raw_builtin()` factory (struct-literal blocked by
+  `#[non_exhaustive]`). The inline `shim_execute` is now an
+  unreachable defensive fallback. Old TODO block removed (both TODOs
+  resolved).
+- `brush-shell/tests/bundled_pgid.rs` — new Linux pgid integration test.
+
 ### ✨ Features
 
 #### `feat(extras): bundle find / xargs from uutils/findutils via adapter wrapper`
