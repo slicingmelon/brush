@@ -70,12 +70,38 @@ pub fn install(commands: HashMap<String, BundledFn>) {
 /// Providers are controlled by Cargo features. Binaries should call this
 /// once, before [`maybe_dispatch`], so both the dispatch fast path and the
 /// shell's shim builtins see a populated registry.
+///
+/// Multi-provider merge order: coreutils first, then non-coreutils
+/// extras (findutils/diffutils/procps via `brush-bundled-extras`).
+/// `HashMap::extend` semantics mean a later insertion under the same name
+/// would overwrite an earlier one — currently no name overlap exists
+/// between `brush-coreutils-builtins` and `brush-bundled-extras`, so
+/// merge order has no observable effect today. If a future provider
+/// introduces a name collision, the resolution policy needs explicit
+/// documentation here.
 pub fn install_default_providers() {
     #[allow(unused_mut)]
     let mut commands: HashMap<String, BundledFn> = HashMap::new();
 
     #[cfg(feature = "experimental-bundled-coreutils")]
     commands.extend(brush_coreutils_builtins::bundled_commands());
+
+    #[cfg(any(
+        feature = "experimental-bundled-extras",
+        feature = "experimental-bundled-extras-findutils"
+    ))]
+    {
+        // `brush-bundled-extras` declares its own `BundledFn` type alias
+        // matching this crate's. They are nominally distinct types but
+        // identical structurally (`fn(Vec<OsString>) -> i32`); the
+        // explicit cast at insertion is to suppress Rust's nominal-type
+        // mismatch.
+        commands.extend(
+            brush_bundled_extras::bundled_commands()
+                .into_iter()
+                .map(|(k, f)| (k, f as BundledFn)),
+        );
+    }
 
     install(commands);
 }
@@ -175,43 +201,30 @@ fn shim_content(
     }
 }
 
-/// Builtin execute function shared by all bundled commands. Looks up the
-/// invoked name from `context.command_name` and re-executes the running
-/// brush binary as `brush <DISPATCH_FLAG> <name> <args>`.
-///
-/// Reuses the same entry point the `command` builtin uses (see
-/// `brush-builtins/src/command.rs`): constructs a [`commands::SimpleCommand`]
-/// whose `command_name` is the absolute brush exe path. Because that contains
-/// a path separator, `SimpleCommand::execute` routes directly to the
-/// external-execution path, bypassing the builtin/function lookup that would
-/// otherwise re-enter this very shim.
-///
-/// `use_functions = false` is defensive: even though the path-separator
-/// branch already skips function dispatch, we don't want a hypothetical
-/// refactor of `SimpleCommand` to silently break us.
+/// Defensive fallback execute function. **Unreachable on the normal call
+/// path** since [`shim_registration`] attaches a
+/// [`brush_core::builtins::BundledDispatch`] that routes execution
+/// through brush-core's external-spawn machinery before ever reaching
+/// this function. Kept for two reasons: (1) `Registration::execute_func`
+/// is not optional, so we must supply something; (2) if a future
+/// refactor of brush-core forgets to honor `bundled_dispatch`, this
+/// function preserves the pre-Path-A behavior (spawn child, await
+/// completion) so bundled commands continue to work — just without
+/// pipeline parallelism.
 //
-// TODO(bundled): Process-group propagation.
-// The shim leaves `SimpleCommand::process_group_id` as `None`, so when a
-// bundled command appears in a pipeline it doesn't join the pipeline's
-// pgid — job control and pipeline-wide signal delivery misbehave.
-// `ExecutionContext` doesn't currently carry the dispatcher's pgid, so
-// fixing this requires plumbing the pgid through the builtin dispatch
-// boundary (likely as a field on `ExecutionParameters` or a new
-// `ExecutionContext` accessor).
+// Historical TODOs (Path A resolves both):
 //
-// TODO(bundled): Pipeline serialization.
-// The builtin contract returns an `ExecutionResult` (a completed command),
-// not an `ExecutionSpawnResult` (a spawn handle), so this function has to
-// `.await` the child to completion before returning. That's fine for a
-// standalone bundled command or for the tail of a pipeline, but for a
-// bundled stage in the middle of `a | b | c` it means stage N only
-// "starts" (from brush's perspective) after its child has fully exited —
-// downstream stages get no parallelism with it. Fixing this means
-// bypassing the builtin API for bundled dispatch: either detect the shim
-// inside `SimpleCommand::execute`'s dispatch table and return an
-// `ExecutionSpawnResult::StartedProcess` directly (same shape as external
-// dispatch), or generalize the builtin API so a builtin can return a
-// spawn handle instead of a finished result.
+//   * Process-group propagation — solved by Cycle 1 plumbing
+//     (`ExecutionContext::process_group_id`) plus Path A routing through
+//     `execute_via_external` which honors the field via
+//     `commands.rs::execute_external_command`.
+//
+//   * Pipeline serialization — solved by Path A. brush-core now sees
+//     `Registration::bundled_dispatch.is_some()` and short-circuits to
+//     `execute_via_bundled`, which returns
+//     `ExecutionSpawnResult::StartedProcess` immediately. The pipeline
+//     spawn loop in `interp::spawn_pipeline_processes` proceeds to the
+//     next stage without waiting.
 fn shim_execute<SE: ShellExtensions>(
     context: ExecutionContext<'_, SE>,
     args: Vec<CommandArg>,
@@ -235,6 +248,7 @@ fn shim_execute<SE: ShellExtensions>(
         // replace it with an explicit `<name>` after `DISPATCH_FLAG` so the
         // child's dispatcher sees it in a fixed slot.
         let bundled_name = context.command_name.clone();
+        let pgid = context.process_group_id;
         let mut child_args: Vec<CommandArg> = Vec::with_capacity(args.len() + 2);
         child_args.push(CommandArg::String(String::new())); // args[0], dropped
         child_args.push(CommandArg::String(DISPATCH_FLAG.into()));
@@ -254,6 +268,10 @@ fn shim_execute<SE: ShellExtensions>(
         // `<name>:` rather than `brush:`. Without this the child sees the
         // brush exe path as argv[0] and misattributes errors.
         cmd.argv0 = Some(bundled_name);
+        // Inherit the enclosing pipeline's pgid so this child joins the same
+        // process group as its neighbours. No-op on Windows, where
+        // `process_group` is a stub.
+        cmd.process_group_id = pgid;
 
         let spawn_result = cmd.execute().await?;
         let wait_result = spawn_result.wait().await?;
@@ -264,14 +282,29 @@ fn shim_execute<SE: ShellExtensions>(
 /// Constructs a [`Registration`] for the bundled-shim builtin. The same
 /// registration value can be reused for every bundled name; per-name
 /// dispatch happens via `context.command_name` at execution time.
-fn shim_registration<SE: ShellExtensions>() -> Registration<SE> {
-    Registration {
-        execute_func: shim_execute::<SE>,
-        content_func: shim_content,
-        disabled: false,
-        special_builtin: false,
-        declaration_builtin: false,
-    }
+///
+/// **Path A wiring (proto/bundled-path-a)**: this registration carries
+/// a [`brush_core::builtins::BundledDispatch`] that tells brush-core to
+/// route the call through external-spawn machinery instead of calling
+/// `shim_execute` inline. The inline execute path (which awaits a child
+/// to completion) is preserved as a defensive fallback for builds where
+/// the dispatch field is somehow ignored, but on the normal call path
+/// `shim_execute` is unreachable.
+///
+/// Returns `None` if the brush executable's path cannot be determined
+/// at registration time (extremely rare — implies `current_exe()`
+/// failed). In that case bundled commands are not registerable; this
+/// matches the prior behavior of the inline path which would have
+/// failed at execute time anyway.
+fn shim_registration<SE: ShellExtensions>() -> Option<Registration<SE>> {
+    let exe_path = self_exe()?.clone();
+    Some(
+        brush_core::builtins::raw_builtin::<SE>(shim_execute::<SE>, shim_content)
+            .with_bundled_dispatch(brush_core::builtins::BundledDispatch {
+                exe_path,
+                dispatch_flag: DISPATCH_FLAG.to_string(),
+            }),
+    )
 }
 
 /// Registers a shim builtin for every name in the installed bundled-command
@@ -283,7 +316,14 @@ pub fn register_shims<SE: ShellExtensions>(shell: &mut brush_core::Shell<SE>) {
     let Some(registry) = REGISTRY.get() else {
         return;
     };
+    // Build the registration once; reused for every bundled name. If
+    // `current_exe()` failed at startup we silently skip — matches the
+    // prior behavior where `shim_execute` would have failed at the
+    // first invocation anyway.
+    let Some(registration) = shim_registration::<SE>() else {
+        return;
+    };
     for name in registry.keys() {
-        shell.register_builtin_if_unset(name.clone(), shim_registration::<SE>());
+        shell.register_builtin_if_unset(name.clone(), registration.clone());
     }
 }

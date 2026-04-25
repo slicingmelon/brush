@@ -3,9 +3,420 @@
 Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brush).
 Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 
-## Unreleased
+# v0.3.1 - 2026-04-25
+
+> Per-component version bumps in this release:
+>
+> | Crate                      | Previous | New     | Why                                                                                                                                                |
+> |----------------------------|----------|---------|----------------------------------------------------------------------------------------------------------------------------------------------------|
+> | `brush-core`               | 0.4.0    | 0.4.1   | Pgid plumbing through `ExecutionContext`; new `BundledDispatch` struct + `Registration::bundled_dispatch` field; `Registration` is now `#[non_exhaustive]`; new `raw_builtin()` factory; `special()` is no longer `const fn`; `execute_via_bundled` method on `SimpleCommand`; Windows console-flash suppression on child spawn; MSYS path translator for `/c/...`-style paths. |
+> | `brush-shell`              | 0.3.0    | 0.3.1   | New `experimental-bundled-coreutils-{unix,linux}-extras` and `experimental-bundled-extras{,-findutils}` feature flags; `bundled.rs` shim now uses `BundledDispatch` + factory pattern; `install_default_providers()` merges the new `brush-bundled-extras` registry; `bash` binary alias produced alongside `brush`; `-c` adjacency rewriting fix; bash-version banner; `--norc`/`--noprofile`/`--no-config` interactive defaults. |
+> | `brush-coreutils-builtins` | 0.1.0    | 0.1.1   | 26 missing utilities + `[` test alias added (Phase 0 reconciled against canonical `uutils/coreutils@0.8.0`); new aggregate features `coreutils.all-unix`, `coreutils.all-linux`; target-gated dep blocks for Unix-only and Linux-only `uu_*` crates. |
+> | `brush-bundled-extras`     | —        | 0.1.0   | New crate. Adapter wrappers for non-uutils-coreutils utilities. Currently ships `find` + `xargs` from `uutils/findutils@0.8.0` (Cycle 2 of `coreutils-coverage-expansion.md`). |
+>
+> Crates not bumped (no source changes on this branch): `brush-builtins`,
+> `brush-experimental-builtins`, `brush-parser`, `brush-interactive`,
+> `brush-test-harness`, `xtask`, `fuzz`, top-level `brush`.
+
+### ♻️ Refactors
+
+#### `refactor(bundled): route bundled dispatch through external-spawn machinery`
+
+Cycle 2 of [`docs/planning/bundled-coreutils-pipelines.md`](./docs/planning/bundled-coreutils-pipelines.md).
+**Architectural cleanup** — the cycle was originally framed as a
+parallelism unlock, but empirical measurement showed pre-Path-A
+pipelines were already parallel (via `tokio::task::spawn_blocking` +
+`ExecutionSpawnResult::StartedTask` for owned-shell builtins). Path A
+still landed because it delivers real, if smaller, wins:
+
+- **Bundled commands now route through the same machinery as ordinary
+  PATH commands.** `SimpleCommand::execute` recognizes a new
+  `Registration::bundled_dispatch` field and short-circuits to a new
+  `execute_via_bundled` method that calls the existing
+  `execute_via_external` path. The shim's spawn-and-wait indirection is
+  replaced by direct external-spawn dispatch.
+- **No `spawn_blocking` thread per pipeline stage.** Bundled stages are
+  spawned directly via `sys::process::spawn`, returning
+  `ExecutionSpawnResult::StartedProcess` — same shape as PATH commands.
+  Small win for long pipelines.
+- **Pgid handling is uniform with external commands.** Bundled stages
+  now honor `cmd.process_group_id` via the same code path
+  (`commands.rs::execute_external_command`) that PATH commands use,
+  instead of via a shim-specific copy.
+- **Single `ExecutionSpawnResult` variant for bundled and external
+  commands.** Previously bundled returned `StartedTask` (tokio join
+  handle) and external returned `StartedProcess` (OS child). Now both
+  are `StartedProcess` — removing a divergence the orchestrator code
+  had to handle.
+
+**Public API additions to `brush-core`** (SemVer-relevant):
+
+- New `BundledDispatch` struct in `brush-core::builtins`, carrying an
+  executable path and an opaque dispatch flag. Set on a
+  `Registration` via `with_bundled_dispatch()`.
+- New `Registration::bundled_dispatch: Option<BundledDispatch>` field.
+- `Registration` is now `#[non_exhaustive]` so future field additions
+  don't break downstream consumers.
+- New `raw_builtin(execute_func, content_func)` factory function for
+  consumers (like `brush-shell::bundled`) that don't fit the
+  trait-based factories.
+- `Registration::special()` is no longer `const fn` (the
+  `BundledDispatch::exe_path: PathBuf` adds a non-const-evaluatable
+  destructor). Semantic behavior is unchanged.
+
+**Path B prototype skipped**: the original plan called for prototyping
+both Path A (new field on `Registration`) and Path B (changing
+`CommandExecuteFunc` return type to `ExecutionSpawnResult`) and
+choosing by measurement. The decision rule was gated on parallelism
+gain. Once empirical measurement showed there was no parallelism gap
+to close, Path B's much larger SemVer break (modifying the type alias
+all ~50 builtin sites consume) had no payoff. Correctly skipped.
+
+**Linux pgid integration test added** at
+`brush-shell/tests/bundled_pgid.rs`, gated to `cfg(target_os = "linux")`.
+Runs `cat /proc/self/stat | sh -c 'ps -o pgid= -p $$'` and asserts that
+bundled `cat`'s pgid (read from `/proc/self/stat` field 5) equals the
+`sh` stage's pgid (printed by `ps`). End-to-end check that Cycle 1
+plumbing + Cycle 2 routing compose correctly. CI validates on Linux
+runners; Windows compiles past it via the file-level cfg gate.
+
+**Empirical timings on Windows** (debug build vs installed release):
+
+| Workload                                   | Pre-Path-A (release) | Path A (debug) |
+|--------------------------------------------|----------------------|----------------|
+| `sleep 2 \| sleep 2 \| sleep 2`            | 2.4s                 | 2.8s           |
+| `seq 1 5_000_000 \| wc -l`                 | 0.39s                | 0.87s (debug)  |
+
+Both achieve parallelism; differences are dominated by build mode, not
+orchestration shape.
+
+**Files changed**
+
+- `brush-core/src/builtins.rs` — `BundledDispatch` struct,
+  `Registration::bundled_dispatch` field, `#[non_exhaustive]`,
+  `raw_builtin()` factory, `with_bundled_dispatch()` builder,
+  `special()` loses `const fn`.
+- `brush-core/src/commands.rs` — `SimpleCommand::execute` branches on
+  `bundled_dispatch.is_some()`; new `execute_via_bundled()` method
+  builds the spawn argv and delegates to `execute_via_external`.
+- `brush-shell/src/bundled.rs` — `shim_registration` attaches
+  `BundledDispatch` via `with_bundled_dispatch`. Uses new
+  `raw_builtin()` factory (struct-literal blocked by
+  `#[non_exhaustive]`). The inline `shim_execute` is now an
+  unreachable defensive fallback. Old TODO block removed (both TODOs
+  resolved).
+- `brush-shell/tests/bundled_pgid.rs` — new Linux pgid integration test.
+
+### ✨ Features
+
+#### `feat(extras): bundle find / xargs from uutils/findutils via adapter wrapper`
+
+Cycle 2 of [`docs/planning/coreutils-coverage-expansion.md`](./docs/planning/coreutils-coverage-expansion.md).
+Closes the gap between brush's bundled coreutils set and the next-most-asked-for
+utilities: `find` and `xargs` from
+[`uutils/findutils@0.8.0`](https://github.com/uutils/findutils/tree/0.8.0).
+
+**New crate**: `brush-bundled-extras`. Houses adapter wrappers for every
+non-uutils-coreutils utility we ship. Pairs with the existing layout:
+
+```text
+brush-builtins                — native shell builtins (cd, eval, trap, ...)
+brush-experimental-builtins   — experimental natives (save)
+brush-coreutils-builtins      — direct uutils-coreutils bundling
+brush-bundled-extras          — adapter-wrapped non-coreutils utilities  ← NEW
+```
+
+The new crate exists because findutils' API does **not** match uutils-coreutils'
+`uumain` shape:
+
+```rust
+// uutils/coreutils — what brush-coreutils-builtins ships:
+uumain(args: impl Iterator<Item = OsString>) -> i32
+
+// uutils/findutils — what we have to adapt:
+findutils::find::find_main(args: &[&str], deps: &StandardDependencies) -> i32
+findutils::xargs::xargs_main(args: &[&str]) -> i32
+```
+
+Per-utility adapter functions in `brush-bundled-extras/src/lib.rs` translate:
+
+- argv `Vec<OsString>` → `Vec<String>` via `OsString::to_string_lossy()`,
+  then `&[&str]`. **Lossy on non-UTF-8 OS args** — invalid UTF-8 sequences
+  are replaced with U+FFFD. In practice rare for sane file names; if
+  lossless behavior is required, fall through to a system `find`/`xargs`
+  on PATH.
+- For `find`: construct `findutils::find::StandardDependencies::new()`
+  (real-IO/clock/fs implementation) and pass it through.
+
+**Why one crate for all non-coreutils extras**: the original plan called
+for one crate per upstream repo (`brush-findutils-builtins`,
+`brush-diffutils-builtins`, ...). Cycle 2 pre-flight invalidated that
+default. The plan's load-bearing argument for separate crates was
+"`uucore` version-skew tolerance", but version coexistence is a Cargo
+*dependency-graph* concern, not a *crate-layout* one — Cargo pulls both
+`uucore` versions whether the deps live in one crate or many. With
+that argument gone, separate-crate is just over-fragmentation. The
+mega-crate also future-fits ripgrep/sed/awk integration whose upstreams
+don't naturally fit a "per-uutils-source" pattern. See plan Decision Log
+2026-04-25.
+
+**uucore version skew**: `findutils 0.8.0` pins `uucore = "0.0.30"`;
+`brush-coreutils-builtins` pins `uucore = "0.8.0"`. Cargo resolves both,
+duplicating uucore-side code in the binary. Accepted cost — bounded; not
+a regression vs. shipping no `find` at all.
+
+**New feature flags on `brush-shell/Cargo.toml`** (opt-in, independent of
+the coreutils flags):
+
+- `experimental-bundled-extras` — top-level aggregate. Currently enables
+  findutils only (Cycle 2); future cycles add diffutils/procps and
+  potentially grep/sed/awk to this set.
+- `experimental-bundled-extras-findutils` — explicit findutils-only
+  opt-in.
+
+**Installing with find / xargs included**:
+
+```sh
+cargo install --locked --path brush-shell --force \
+  --features experimental-builtins,experimental-bundled-coreutils,experimental-bundled-extras
+```
+
+(Add `-coreutils-unix-extras` or `-coreutils-linux-extras` from Cycle 1
+on Unix/Linux for the broader utility set.)
+
+**Smoke-tested** on Windows (`cargo build -p brush-shell --features
+experimental-bundled-extras`, exit 0):
+
+```text
+$ ./target/debug/brush.exe -c 'type find; type xargs; find . -maxdepth 1 -name "*.toml"'
+find is a shell builtin
+xargs is a shell builtin
+.\Cargo.toml
+.\cliff.toml
+.\clippy.toml
+.\deny.toml
+.\release-plz.toml
+.\rustfmt.toml
+
+$ ./target/debug/brush.exe -c \
+    'printf "%s\n" .\\Cargo.toml .\\cliff.toml | xargs -n1 cmd /c echo'
+.Cargo.toml
+.cliff.toml
+```
+
+**Known limitations** (upstream behavior, not adapter bugs):
+
+- **`xargs` cannot invoke shell builtins.** xargs spawns subprocesses via
+  the OS `fork`/`exec` (or `CreateProcess` on Windows), which doesn't see
+  brush's builtins. So `xargs echo` fails to find `echo` even though it's
+  a brush builtin — pass a real binary instead. Same applies to
+  `find -exec`. This is a hard limit of how `find`/`xargs` work, not
+  fork-able to fix in our adapter.
+- **`find` panics on broken pipe on Windows.** When a downstream stage
+  (e.g., `find | head`) closes early, findutils 0.8.0 panics in
+  `printer.rs:67` on a Windows EPIPE because it `unwrap()`s a
+  `Result::Err`. Same family of issue as the coreutils EPIPE noise on
+  Windows (no SIGPIPE → uutils' EPIPE handling is brittle on Windows).
+  Tracked separately; needs an upstream fix in findutils. Workaround:
+  on Windows, write find's output to a file and pipe the file, instead
+  of streaming through `head`.
+- **Argv lossiness on non-UTF-8 OS args.** Documented above; affects
+  paths with surrogate UCS-2 on Windows or arbitrary bytes on Unix.
+  Substituted with U+FFFD before reaching findutils. Use a system find
+  for fully lossless paths.
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — new crate; optional `findutils`
+  dep; per-utility features + aggregates.
+- `brush-bundled-extras/src/lib.rs` — `find_adapter`, `xargs_adapter`,
+  `bundled_commands()`.
+- `Cargo.toml` — workspace member registration.
+- `brush-shell/Cargo.toml` — `brush-bundled-extras` dep (optional);
+  `experimental-bundled-extras` and `-findutils` feature flags.
+- `brush-shell/src/bundled.rs` — `install_default_providers()` merges
+  `brush-bundled-extras::bundled_commands()` into the registry under
+  the new feature flags.
+
+#### `feat(coreutils): add 26 missing uutils/coreutils utilities + `[` alias`
+
+This is Cycle 1 of [`docs/planning/coreutils-coverage-expansion.md`](./docs/planning/coreutils-coverage-expansion.md).
+The goal of that plan is closing the gap between the 80 uutils utilities
+the fork shipped at MVP and the ~107 utilities `uutils/coreutils 0.8.0`
+actually provides — every command we missed is a `command not found` for
+shell scripts the fork was meant to host.
+
+After Phase 0 reconciled the to-add list against the canonical
+[`uutils/coreutils@0.8.0/Cargo.toml`](https://github.com/uutils/coreutils/blob/0.8.0/Cargo.toml),
+**26 utilities + 1 alias** are wired into `brush-coreutils-builtins`:
+
+| Group                                  | Utilities                                                                                                                                          | Cargo gate                              |
+|----------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------|
+| Cross-platform (Tier 1; was missing)   | `pathchk`                                                                                                                                          | `[dependencies]` (unconditional)        |
+| Unix-only (`feat_require_unix_core`)   | `chgrp`, `chmod`, `chown`, `chroot`, `groups`, `id`, `install`, `kill`*, `logname`, `mkfifo`, `mknod`, `nice`, `nohup`, `stat`, `stty`, `timeout`, `tty` | `[target.'cfg(unix)'.dependencies]`     |
+| Unix-only (`feat_require_unix_utmpx`)  | `pinky`, `uptime`, `users`, `who`                                                                                                                  | `[target.'cfg(unix)'.dependencies]`     |
+| Unix-only (`feat_require_unix_hostid`) | `hostid`                                                                                                                                           | `[target.'cfg(unix)'.dependencies]`     |
+| Linux-only (LD_PRELOAD or libselinux)  | `stdbuf`, `chcon`, `runcon`                                                                                                                        | `[target.'cfg(target_os = "linux")'.dependencies]` |
+| Alias                                  | `[`  (calls `uu_test::uumain`)                                                                                                                     | enabled by `coreutils.test`             |
+
+\* `kill` collides with brush's native `kill` builtin.
+[`brush-shell/src/bundled.rs::register_shims`](./brush-shell/src/bundled.rs)
+uses `register_builtin_if_unset`, so the native version wins for the
+shell-builtin lookup path. The bundled-dispatch fast path
+(`brush --invoke-bundled kill ...`) routes to uutils, which is the
+expected behavior for direct invocation.
+
+**New aggregate features in `brush-coreutils-builtins/Cargo.toml`**:
+
+- `coreutils.all` (existing) — every utility that builds on every Tier-1
+  target. Now includes `pathchk` (the only Tier-1 cross-platform utility
+  the fork was missing).
+- `coreutils.all-unix` (new) — `coreutils.all` + the Unix-only set above.
+  Builds only on Unix targets (the dep crates live in a `cfg(unix)`
+  target table). Enabling on Windows triggers a Cargo dep-resolution
+  error — by design.
+- `coreutils.all-linux` (new) — `coreutils.all-unix` + the Linux-only set.
+  Builds only on Linux.
+
+**New feature flags on `brush-shell/Cargo.toml`** (opt-in, layered):
+
+- `experimental-bundled-coreutils` (existing) — enables
+  `coreutils.all`. Behavior unchanged for Windows users; on Unix this
+  now also includes `pathchk` and the `[` alias.
+- `experimental-bundled-coreutils-unix-extras` (new) — adds the
+  Unix-only set on top.
+- `experimental-bundled-coreutils-linux-extras` (new) — adds the
+  Linux-only set on top of `-unix-extras`.
+
+**Installing the full Unix set** (replaces the bare-experimental install):
+
+```sh
+# Linux:
+cargo install --locked --path brush-shell --force \
+  --features experimental-builtins,experimental-bundled-coreutils-linux-extras
+
+# macOS / other Unix:
+cargo install --locked --path brush-shell --force \
+  --features experimental-builtins,experimental-bundled-coreutils-unix-extras
+
+# Windows: the bare experimental flag is still the right choice — uutils'
+# Unix-only crates (id, chmod, ...) are gated to cfg(unix) by upstream,
+# and there is no Windows port of these utilities to bundle.
+cargo install --locked --path brush-shell --force \
+  --features experimental-builtins,experimental-bundled-coreutils
+```
+
+**Why some utilities are still missing on Windows**: uutils itself ships
+`id`, `stat`, `chmod`, etc. only for Unix-class targets — they use POSIX
+APIs (`getuid()`, mode bits, signal numbers) that Windows lacks
+equivalents for. The fork follows uutils' gating: the Cargo deps for
+these utilities live in `[target.'cfg(unix)'.dependencies]`, so on
+Windows the dep is not in the graph and no compile is attempted.
+Windows users wanting `id` etc. should fall through to `PATH` — the
+Git Bash MSYS2 binaries are still resolvable.
+
+**What was removed from the original to-add candidate set during Phase 0**:
+
+- `hashsum` — not a separate `uu_*` dependency in 0.8.0; uutils ships
+  it only as a multi-call binary alias from the `coreutils` driver, with
+  no `uu_hashsum` crate to register here.
+
+**Binary-size impact** (dev unstripped on Windows, with
+`experimental-bundled-coreutils`): 42.8 MB (with `pathchk` + `[` alias).
+Cycle 1's incremental cost is bounded — Windows gains one new utility
+(`pathchk`), Unix gains 26 + the alias. Release-mode size measurement
+deferred — not a regression on Windows.
+
+**Files changed**
+
+- `brush-coreutils-builtins/Cargo.toml` — 26 new `coreutils.<name>`
+  features; new `coreutils.all-unix` and `coreutils.all-linux`
+  aggregates; new `[target.'cfg(unix)'.dependencies]` and
+  `[target.'cfg(target_os = "linux")'.dependencies]` blocks
+- `brush-coreutils-builtins/src/lib.rs` — `register!` lines for all 26
+  utilities (target-cfg-gated as appropriate) + `[` alias
+- `brush-shell/Cargo.toml` — two new opt-in feature flags
+  (`-unix-extras`, `-linux-extras`)
+
+**Smoke-tested** on Windows (`cargo build -p brush-shell --features
+experimental-bundled-coreutils`, exit 0):
+
+```text
+$ ./target/debug/brush.exe -c 'type pathchk; type "["; pathchk hello.txt && echo ok=$?; [ 1 = 1 ] && echo ok'
+pathchk is a shell builtin
+[ is a shell builtin
+ok=0
+ok
+```
+
+**Deferred to follow-up** (tracked in
+[`docs/planning/coreutils-coverage-expansion.md`](./docs/planning/coreutils-coverage-expansion.md)):
+
+- Phase 1.5 — YAML smoke tests for the new utilities. The harness
+  builds brush via `cargo_bin!("brush")` without specifying features, so
+  bundled-coreutils tests would need test-harness feature-flag plumbing
+  (a separate concern).
+- Phase 1.6 — `xtask coverage-check` to detect future drift between our
+  registry and upstream `uutils/coreutils` releases.
+
+#### `feat(bundled): plumb pipeline pgid through ExecutionContext`
+
+Adds `process_group_id: Option<i32>` to `brush_core::commands::ExecutionContext`
+and threads it through every construction site (`execute_via_builtin_in_owned_shell`,
+`execute_via_builtin_in_parent_shell`, `execute_via_function`, `execute_via_external`,
+plus `Shell::invoke_function`). Lets the bundled-coreutils shim
+([`brush-shell/src/bundled.rs`](./brush-shell/src/bundled.rs)) read the enclosing
+pipeline's pgid back and apply it to the child `SimpleCommand` it spawns.
+
+**Effective only where `process_group` is more than a stub** — Linux/macOS via `nix`.
+Windows is a silent no-op until the job-control epic lands
+(see [`docs/planning/bundled-coreutils-pipelines.md`](./docs/planning/bundled-coreutils-pipelines.md)
+Cycle 3).
+
+This is Cycle 1 of the bundled-coreutils-pipelines plan. **By itself it does not
+change observable behavior** — the shim still returns `Completed`, so the pipeline
+spawn loop never harvests the bundled leader's pgid to apply to the rest of the
+pipeline. That is resolved in Cycle 2 (pipeline parallelism), which converts the
+shim's return shape from a finished result into a spawn handle.
+
+**Public API change**: `ExecutionContext` is `pub` and not `#[non_exhaustive]`, so
+the new field is technically observable to downstream brush-core consumers
+constructing `ExecutionContext` literals. In practice the struct is only meant
+for builtin authors, and the field defaults to `None` for all builtins that don't
+re-exec. Flagged here for SemVer transparency.
+
+**Files changed**
+
+- `brush-core/src/commands.rs` — new field + 4 plumbing sites
+- `brush-core/src/shell/funcs.rs` — set `None` on the function-invocation context
+- `brush-shell/src/bundled.rs` — read context pgid onto child `SimpleCommand`
 
 ### 🐛 Bug Fixes
+
+#### `fix(windows): suppress console-window flash on child process spawn`
+
+When brush is launched by a host that has no attached console (Claude Code's
+Bash tool, editor terminals, automation harnesses), every child process it
+spawns triggered a brief dark console window: Windows allocates a fresh
+console for a console-subsystem child whose parent has none. The flash was
+especially visible with bundled coreutils enabled, since each `cat`, `ls`,
+`tr`, etc. re-invokes brush as a shim child — every line of output, multiple
+flashes.
+
+Fix: pass `CREATE_NO_WINDOW` (`0x0800_0000`) via `creation_flags` on the
+single Windows spawn point in `brush-core/src/sys/tokio_process.rs`. stdio
+handles still inherit through `STARTUPINFO`, so pipelines, redirections, and
+captured output are unaffected — only the console *window* allocation is
+suppressed. The flag is gated on `cfg(windows)`; Unix is untouched.
+
+A future enhancement may detect interactive child invocations (e.g. `vim`,
+`less`) and skip the flag for those, but for non-interactive shell-tool
+usage — which is what brush-as-Git-Bash-replacement is mainly for —
+unconditional suppression is the right default.
+
+**Files changed**
+
+- `brush-core/src/sys/tokio_process.rs` — apply `CREATE_NO_WINDOW` on Windows
 
 #### `fix(windows): translate MSYS / Git-Bash style paths in `absolute_path``
 

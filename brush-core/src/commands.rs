@@ -40,6 +40,12 @@ pub struct ExecutionContext<'a, SE: ShellExtensions = extensions::DefaultShellEx
     pub command_name: String,
     /// The parameters for the execution.
     pub params: ExecutionParameters,
+    /// Process group ID inherited from an enclosing pipeline, if any.
+    /// Builtins that re-exec brush as a child (notably the bundled-coreutils
+    /// shim) read this so the child joins the pipeline's pgid; ordinary
+    /// builtins that complete inline can ignore it. Effective only on
+    /// platforms where `process_group` is more than a stub.
+    pub process_group_id: Option<i32>,
 }
 
 impl<SE: ShellExtensions> ExecutionContext<'_, SE> {
@@ -365,6 +371,12 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
         {
             #[allow(clippy::unwrap_used, reason = "we just checked that builtin is Some")]
             let builtin = builtin.unwrap();
+            // Bundled dispatch wins over inline-builtin even for special
+            // builtins; the bundled mechanism intentionally re-uses
+            // external-spawn machinery so pipeline parallelism is preserved.
+            if let Some(dispatch) = builtin.bundled_dispatch.clone() {
+                return self.execute_via_bundled(dispatch);
+            }
             return self.execute_via_builtin(builtin).await;
         }
 
@@ -382,6 +394,9 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
         // then invoke it.
         if let Some(builtin) = builtin {
             if !builtin.disabled {
+                if let Some(dispatch) = builtin.bundled_dispatch.clone() {
+                    return self.execute_via_bundled(dispatch);
+                }
                 return self.execute_via_builtin(builtin).await;
             }
         }
@@ -436,6 +451,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
                     builtin,
                     self.command_name,
                     self.args,
+                    self.process_group_id,
                 ))
             }
             ShellForCommand::ParentShell(..) => {
@@ -450,6 +466,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
         builtin: builtins::Registration<SE>,
         command_name: String,
         args: Vec<CommandArg>,
+        process_group_id: Option<i32>,
     ) -> ExecutionSpawnResult {
         let last_arg = Self::take_last_arg(&args);
         let join_handle = tokio::task::spawn_blocking(move || {
@@ -457,6 +474,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
                 shell: &mut shell,
                 command_name,
                 params,
+                process_group_id,
             };
 
             let rt = tokio::runtime::Handle::current();
@@ -482,6 +500,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
             shell: &mut shell,
             command_name: self.command_name,
             params: self.params,
+            process_group_id: self.process_group_id,
         };
 
         let result = execute_builtin_command(&builtin, cmd_context, self.args).await;
@@ -509,6 +528,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
             shell: &mut shell,
             command_name: self.command_name,
             params: self.params,
+            process_group_id: self.process_group_id,
         };
 
         // Strip the function name off args.
@@ -527,6 +547,59 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
         result
     }
 
+    /// Dispatches a builtin marked with [`builtins::BundledDispatch`] as
+    /// an external process spawn instead of an inline builtin call.
+    ///
+    /// Spawned argv: `<exe_path> <dispatch_flag> <bundled_name> <user_args[1..]>`.
+    /// The bundled name is also used as the spawned process's `argv[0]`
+    /// override so error messages from the spawned binary render with the
+    /// expected utility name (`ls: ...`) rather than the brush exe path.
+    ///
+    /// Returns an [`ExecutionSpawnResult::StartedProcess`] immediately —
+    /// the pipeline orchestrator in `interp::spawn_pipeline_processes`
+    /// then proceeds to spawn the next stage without waiting, restoring
+    /// pipeline parallelism for bundled commands.
+    fn execute_via_bundled(
+        mut self,
+        dispatch: builtins::BundledDispatch,
+    ) -> Result<ExecutionSpawnResult, error::Error> {
+        // Save the bundled name for the argv0 override and the dispatch
+        // protocol payload before we move `self`.
+        let bundled_name = self.command_name.clone();
+
+        // Rebuild argv as expected by the spawned brush binary's
+        // bundled-dispatch fast path:
+        //   args[0] — placeholder, dropped by external-execution
+        //             (argv[0] of the spawned process comes from `argv0`
+        //              below, not from this slot)
+        //   args[1] — the dispatch flag
+        //   args[2] — the bundled name (in a fixed slot for the
+        //             dispatcher)
+        //   args[3..] — user arguments (skipping the original argv[0],
+        //               which by builtin-dispatch convention was the
+        //               bundled name)
+        let original_args = std::mem::take(&mut self.args);
+        let mut child_args: Vec<CommandArg> = Vec::with_capacity(original_args.len() + 2);
+        child_args.push(CommandArg::String(String::new()));
+        child_args.push(CommandArg::String(dispatch.dispatch_flag));
+        child_args.push(CommandArg::String(bundled_name.clone()));
+        child_args.extend(original_args.into_iter().skip(1));
+        self.args = child_args;
+
+        // Override argv[0] for the spawned process so tools that report
+        // errors via their own argv[0] (uutils' `uucore::util_name()`
+        // reads `std::env::args_os()[0]` into a `LazyLock` at first
+        // use) render as `<name>:` rather than the brush exe path.
+        self.argv0 = Some(bundled_name);
+
+        // Substitute the path-resolved command_name with the spawn target.
+        self.command_name = dispatch.exe_path.to_string_lossy().into_owned();
+
+        // Hand off to the same external-spawn machinery that ordinary
+        // PATH commands use. Returns `StartedProcess` immediately.
+        self.execute_via_external(&dispatch.exe_path)
+    }
+
     fn execute_via_external(self, path: &Path) -> Result<ExecutionSpawnResult, error::Error> {
         let mut shell = self.shell;
         let last_arg = Self::take_last_arg(&self.args);
@@ -535,6 +608,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
             shell: &mut shell,
             command_name: self.command_name,
             params: self.params,
+            process_group_id: self.process_group_id,
         };
 
         let resolved_path = path.to_string_lossy();

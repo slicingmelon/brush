@@ -165,6 +165,7 @@ pub fn bundled_commands() -> HashMap<String, fn(Vec<OsString>) -> i32> {
     register!(m, "coreutils.numfmt", "numfmt", uu_numfmt);
     register!(m, "coreutils.od", "od", uu_od);
     register!(m, "coreutils.paste", "paste", uu_paste);
+    register!(m, "coreutils.pathchk", "pathchk", uu_pathchk);
     register!(m, "coreutils.pr", "pr", uu_pr);
     register!(m, "coreutils.printenv", "printenv", uu_printenv);
     register!(m, "coreutils.printf", "printf", uu_printf);
@@ -199,6 +200,70 @@ pub fn bundled_commands() -> HashMap<String, fn(Vec<OsString>) -> i32> {
     register!(m, "coreutils.wc", "wc", uu_wc);
     register!(m, "coreutils.whoami", "whoami", uu_whoami);
     register!(m, "coreutils.yes", "yes", uu_yes);
+
+    // ----- Unix-only utilities -----
+    //
+    // Each `uu_*` dep below lives in `[target.'cfg(unix)'.dependencies]`,
+    // so on Windows the crate isn't even in the dep graph and the `register!`
+    // expansion would fail to resolve. The outer `#[cfg(unix)]` block keeps
+    // the registration calls out of the Windows compile entirely; the inner
+    // `#[cfg(feature = ...)]` (inside `register!`) keeps each individual
+    // utility off when its feature is disabled.
+    #[cfg(unix)]
+    {
+        // feat_require_unix_core
+        register!(m, "coreutils.chgrp", "chgrp", uu_chgrp);
+        register!(m, "coreutils.chmod", "chmod", uu_chmod);
+        register!(m, "coreutils.chown", "chown", uu_chown);
+        register!(m, "coreutils.chroot", "chroot", uu_chroot);
+        register!(m, "coreutils.groups", "groups", uu_groups);
+        register!(m, "coreutils.id", "id", uu_id);
+        register!(m, "coreutils.install", "install", uu_install);
+        // `kill` collides with brush's native `kill` builtin; the shim
+        // registration in `bundled.rs::register_shims` uses
+        // `register_builtin_if_unset` so the native version wins for the
+        // shell-builtin lookup path. The bundled-dispatch fast path
+        // (`brush --invoke-bundled kill ...`) still routes here, which
+        // is intentional — direct invocation bypasses shell builtins.
+        register!(m, "coreutils.kill", "kill", uu_kill);
+        register!(m, "coreutils.logname", "logname", uu_logname);
+        register!(m, "coreutils.mkfifo", "mkfifo", uu_mkfifo);
+        register!(m, "coreutils.mknod", "mknod", uu_mknod);
+        register!(m, "coreutils.nice", "nice", uu_nice);
+        register!(m, "coreutils.nohup", "nohup", uu_nohup);
+        register!(m, "coreutils.stat", "stat", uu_stat);
+        register!(m, "coreutils.stty", "stty", uu_stty);
+        register!(m, "coreutils.timeout", "timeout", uu_timeout);
+        register!(m, "coreutils.tty", "tty", uu_tty);
+        // feat_require_unix_utmpx
+        register!(m, "coreutils.pinky", "pinky", uu_pinky);
+        register!(m, "coreutils.uptime", "uptime", uu_uptime);
+        register!(m, "coreutils.users", "users", uu_users);
+        register!(m, "coreutils.who", "who", uu_who);
+        // feat_require_unix_hostid (subset of Unix)
+        register!(m, "coreutils.hostid", "hostid", uu_hostid);
+    }
+
+    // ----- Linux-only utilities -----
+    //
+    // `stdbuf` uses a cdylib for `LD_PRELOAD` and doesn't build on
+    // non-Linux Unixes; `chcon`/`runcon` need libselinux at link time.
+    #[cfg(target_os = "linux")]
+    {
+        register!(m, "coreutils.stdbuf", "stdbuf", uu_stdbuf);
+        register!(m, "coreutils.chcon", "chcon", uu_chcon);
+        register!(m, "coreutils.runcon", "runcon", uu_runcon);
+    }
+
+    // ----- Aliases -----
+    //
+    // `[` is the historical pseudo-name for `test`. Upstream uutils
+    // exposes it via the multi-call binary's bin-alias table, which we
+    // can't use here. Instead we add a second registration that points
+    // at `uu_test::uumain` under the name `"["`. Gated on the
+    // `coreutils.test` feature (and not on `cfg(unix)` — `test` is
+    // cross-platform).
+    register!(m, "coreutils.test", "[", uu_test);
 
     m
 }

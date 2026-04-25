@@ -145,8 +145,47 @@ pub struct ContentOptions {
     pub colorized: bool,
 }
 
+/// Marks a builtin as one that should be dispatched as an external process
+/// spawn rather than executed inline by `execute_func`.
+///
+/// Used by the bundled-coreutils mechanism in `brush-shell` to re-invoke
+/// the brush binary as a child process. Without this, a bundled stage in
+/// a pipeline (`cat | grep | wc`) returns
+/// [`crate::ExecutionSpawnResult::Completed`] from the inline builtin
+/// path — the pipeline spawn loop in `interp.rs` then awaits its
+/// completion before kicking the next stage, which serializes the
+/// pipeline. With `bundled_dispatch` set, brush-core routes the call
+/// through the same external-spawn machinery used for ordinary `PATH`
+/// commands and gets back a [`crate::ExecutionSpawnResult::StartedProcess`]
+/// immediately, restoring parallelism.
+///
+/// The dispatch protocol is opaque to brush-core: it spawns
+/// `<exe_path> <dispatch_flag> <bundled_name> <user_args...>`. The
+/// consumer (brush-shell) defines `dispatch_flag` and intercepts it in
+/// the binary's `main()` to route to the registered bundled function.
+#[derive(Clone, Debug)]
+pub struct BundledDispatch {
+    /// Path to the executable to spawn — typically the running brush
+    /// binary, captured at registration time via `std::env::current_exe()`.
+    pub exe_path: std::path::PathBuf,
+    /// The single-token argument inserted between the spawned binary
+    /// path and the bundled name (e.g., `"--invoke-bundled"`). Chosen
+    /// by the consumer to be unambiguous in its `main()`.
+    pub dispatch_flag: String,
+}
+
 /// Encapsulates a registration for a built-in command.
+///
+/// Marked `#[non_exhaustive]` so that future field additions (similar to
+/// `bundled_dispatch` added alongside this attribute) are not SemVer-
+/// breaking for downstream consumers. Outside this crate, construct
+/// `Registration` via the [`simple_builtin`], [`builtin`], [`decl_builtin`],
+/// or [`raw_arg_builtin`] factory functions, then chain
+/// [`Registration::special`] / [`Registration::with_bundled_dispatch`] as
+/// needed. Struct-literal construction is reserved for the defining
+/// crate.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Registration<SE: extensions::ShellExtensions> {
     /// Function to execute the builtin.
     pub execute_func: CommandExecuteFunc<SE>,
@@ -162,14 +201,35 @@ pub struct Registration<SE: extensions::ShellExtensions> {
 
     /// Is this builtin one that takes specially handled declarations?
     pub declaration_builtin: bool,
+
+    /// If set, this builtin is dispatched as an external process spawn
+    /// instead of executed inline. See [`BundledDispatch`] for the
+    /// motivation (pipeline parallelism for bundled commands).
+    /// `execute_func` is then unreachable for this registration on the
+    /// normal call path; consumers may leave it as a stub.
+    pub bundled_dispatch: Option<BundledDispatch>,
 }
 
 impl<SE: extensions::ShellExtensions> Registration<SE> {
     /// Updates the given registration to mark it for a special builtin.
+    ///
+    /// (No longer `const fn` since the addition of [`Self::bundled_dispatch`] —
+    /// `Option<BundledDispatch>` carries a `PathBuf` whose destructor cannot
+    /// be evaluated at compile time. The semantic behavior is unchanged.)
     #[must_use]
-    pub const fn special(self) -> Self {
+    pub fn special(self) -> Self {
         Self {
             special_builtin: true,
+            ..self
+        }
+    }
+
+    /// Attaches a [`BundledDispatch`] to this registration, switching it
+    /// from inline-builtin dispatch to external-spawn dispatch.
+    #[must_use]
+    pub fn with_bundled_dispatch(self, dispatch: BundledDispatch) -> Self {
+        Self {
+            bundled_dispatch: Some(dispatch),
             ..self
         }
     }
@@ -370,6 +430,32 @@ pub trait SimpleCommand {
     ) -> Result<results::ExecutionResult, error::Error>;
 }
 
+/// Returns a built-in command registration with raw `execute_func` and
+/// `content_func` pointers, bypassing the trait-based factories below.
+///
+/// Use this when the registration's behavior doesn't fit the
+/// [`Command`] / [`SimpleCommand`] / [`DeclarationCommand`] traits — for
+/// example, the bundled-coreutils shim in `brush-shell`, which dispatches
+/// to upstream uutils' `uumain` functions via [`BundledDispatch`] and
+/// provides its own non-trait `content_func` for `help`/`type`.
+///
+/// Necessary because [`Registration`] is `#[non_exhaustive]`; downstream
+/// consumers can no longer construct it via struct literal.
+#[must_use]
+pub fn raw_builtin<SE: extensions::ShellExtensions>(
+    execute_func: CommandExecuteFunc<SE>,
+    content_func: CommandContentFunc,
+) -> Registration<SE> {
+    Registration {
+        execute_func,
+        content_func,
+        disabled: false,
+        special_builtin: false,
+        declaration_builtin: false,
+        bundled_dispatch: None,
+    }
+}
+
 /// Returns a built-in command registration, given an implementation of the
 /// `SimpleCommand` trait.
 pub fn simple_builtin<B: SimpleCommand + Send + Sync, SE: extensions::ShellExtensions>()
@@ -380,6 +466,7 @@ pub fn simple_builtin<B: SimpleCommand + Send + Sync, SE: extensions::ShellExten
         disabled: false,
         special_builtin: false,
         declaration_builtin: false,
+        bundled_dispatch: None,
     }
 }
 
@@ -392,6 +479,7 @@ pub fn builtin<B: Command + Send + Sync, SE: extensions::ShellExtensions>() -> R
         disabled: false,
         special_builtin: false,
         declaration_builtin: false,
+        bundled_dispatch: None,
     }
 }
 
@@ -406,6 +494,7 @@ pub fn decl_builtin<B: DeclarationCommand + Send + Sync, SE: extensions::ShellEx
         disabled: false,
         special_builtin: false,
         declaration_builtin: true,
+        bundled_dispatch: None,
     }
 }
 
@@ -426,6 +515,7 @@ pub fn raw_arg_builtin<
         disabled: false,
         special_builtin: false,
         declaration_builtin: true,
+        bundled_dispatch: None,
     }
 }
 
