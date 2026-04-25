@@ -733,20 +733,25 @@ For Cycle 1:
 - [x] CHANGELOG.FORK.md updated under Unreleased / Features. *(commit `4f814d3`)*
 
 For Cycle 2:
-- [ ] Pre-flight verified: `uutils/findutils` is on crates.io with compatible API.
-- [ ] `brush-findutils-builtins` crate exists and follows the
-      `brush-coreutils-builtins` shape.
-- [ ] `experimental-bundled-findutils` feature on `brush-shell` works.
-- [ ] Smoke tests: `find . -name '*.rs'`, `find . -type f | xargs wc -l`.
-- [ ] CHANGELOG entry.
+- [x] Pre-flight: `uutils/findutils 0.8.0` on crates.io; API divergent (per-utility adapters needed); `uucore` skew real (0.0.30 vs 0.8.0). Architectural pivot to one mega-crate. *(commit `c649c0f`)*
+- [x] `brush-bundled-extras` crate created; `find_adapter` + `xargs_adapter` translate findutils' `&[&str] + StandardDependencies` API to brush's `BundledFn` shape. *(commit `5afebb0`)*
+- [x] `experimental-bundled-extras` and `experimental-bundled-extras-findutils` features on `brush-shell` work. *(commit `5afebb0`)*
+- [x] `install_default_providers()` merges coreutils + extras registries cleanly. *(commit `5afebb0`)*
+- [x] Smoke test on Windows: `find . -maxdepth 1 -name "*.toml" | wc -l` returns 6 (cross-provider pipeline find→wc works); `xargs -n1 cmd /c echo` exits 0 with valid argv. *(commit `5afebb0`)*
+- [x] CHANGELOG entry under Unreleased / Features. *(commit `5afebb0`)*
+- [ ] Known limits documented but not fixed: findutils EPIPE panic on Windows (upstream bug); xargs/find-exec can't see shell builtins (inherent fork/exec behavior); argv lossy on non-UTF-8.
 
 For Cycle 3:
-- [ ] Same shape as Cycle 2, for `brush-diffutils-builtins` / `experimental-bundled-diffutils`.
+- [ ] Pre-flight: confirm uutils/diffutils published version, lib API, uucore pin.
+- [ ] Add `diffutils` dep + per-utility adapters to `brush-bundled-extras` (same crate).
+- [ ] `experimental-bundled-extras-diffutils` feature on `brush-shell`.
 - [ ] Smoke tests: `diff a b`, `cmp -s a b && echo same`.
 
 For Cycle 4:
-- [ ] Same shape, for `brush-procps-builtins` / `experimental-bundled-procps`.
-- [ ] Platform support honestly documented (likely Linux-mostly).
+- [ ] Pre-flight: confirm uutils/procps published version, lib API, platform binding (likely Linux-mostly).
+- [ ] Re-evaluate crate placement: same mega-crate, or separate if surface area materially exceeds findutils + diffutils combined.
+- [ ] `experimental-bundled-extras-procps` feature on `brush-shell` (or new flag if procps gets its own crate).
+- [ ] Platform support honestly documented.
 - [ ] Smoke tests gated to platforms that support each utility.
 
 For Cycle 5:
@@ -766,3 +771,4 @@ For Cycle 5:
 | 2026-04-25 | Phase 0 (complete) | §2b reconciled against upstream `uutils/coreutils@0.8.0/Cargo.toml`. Findings: (1) `pathchk` confirmed as the only Tier1 cross-platform utility we don't have. (2) `hostid` was missing from the provisional draft — added (Unix-only, `feat_require_unix_hostid`). (3) `hashsum` removed from the to-add set — it is not a separate `uu_*` dependency in 0.8.0; it's a multi-call binary alias produced by uutils' driver, not a registerable utility crate. (4) `[` (test alias) confirmed not a separate dep; requires a manual second `register!` line aliasing `uu_test::uumain`. (5) `uptime` clarified to live in *both* uutils/coreutils (utmpx) and uutils/procps; coreutils version covers Unix today, so Cycle 1 owns it on Unix and Cycle 4 may revisit. (6) `stdbuf` requires `cfg(target_os = "linux")` (LD_PRELOAD-based); separated out from generic `cfg(unix)` set. Cycle 1's final action set: 1 cross-platform utility (`pathchk`), 17 `cfg(unix)` utilities (incl. `kill` as a no-op shim due to native collision), 3 `cfg(target_os = "linux")` utilities (`stdbuf`, `chcon`, `runcon`), 5 utmpx/hostid Unix utilities, plus 1 alias (`[`). 27 entries total. | `tmp-uutils-cargo.toml` (gh-fetched, not committed); §2b post-reconciliation. |
 | 2026-04-25 | Cycle 1 (code complete) | Implementation landed. 26 utilities + `[` alias wired into `brush-coreutils-builtins`. Three new feature aggregates (`coreutils.all`+`pathchk`, `coreutils.all-unix`, `coreutils.all-linux`) layered through `brush-shell` as opt-in flags (`-unix-extras`, `-linux-extras`). Windows build verified clean with `experimental-bundled-coreutils`; smoke test on dev binary confirmed `pathchk` and `[` register and execute correctly. Native-builtin collision: `kill` and `[` already exist as brush natives; `register_builtin_if_unset` keeps native winning — bundled registration is a benign no-op for shell-builtin lookup, but bundled-dispatch fast path still routes to uutils. Two phases deferred: 1.5 (YAML smoke tests need test-harness feature plumbing) and 1.6 (xtask drift check, not blocking). | Commit `4f814d3`. |
 | 2026-04-25 | Cycle 2 (pre-flight, architectural pivot) | Cycle 2 pre-flight findings: (1) findutils 0.8.0 ships only `find` + `xargs` as binaries (`locate`/`updatedb` are NOT in 0.8.0; draft plan was wrong). (2) findutils API is divergent from coreutils' `uumain` shape — `find_main(args: &[&str], deps: &StandardDependencies) -> i32` and `xargs_main(args: &[&str]) -> i32`; per-utility adapter functions required. (3) findutils pins `uucore = "0.0.30"` while coreutils pins `uucore = "0.8.0"` — Cargo will pull both (binary-size tax accepted). (4) **Architectural pivot**: the draft plan's "separate crate per upstream repo" default does not earn its ceremony. Its single load-bearing argument (uucore version skew tolerance) is a Cargo *dependency-graph* concern, not a *crate-layout* one — Cargo coexists versions whether they're in one crate or many. Cycles 2/3/4 (and any future grep/sed/awk integration via Cycle 5) will all share **one mega-crate `brush-bundled-extras`** that houses adapter wrappers for every non-uutils-coreutils utility. Pairs naturally with the existing layout (`brush-builtins`, `brush-experimental-builtins`, `brush-coreutils-builtins`). The "Hard Pre-Flight Gate" for uucore-skew has been demoted from a gate to an informational record, since it no longer drives architectural choice. | Pre-flight 2026-04-25 (gh-fetched `findutils@0.8.0/Cargo.toml`, lib.rs, src/find/main.rs, src/xargs/main.rs); user-reflected decision in conversation. |
+| 2026-04-25 | Cycle 2 (code complete) | Implementation landed. New crate `brush-bundled-extras` houses `find_adapter` and `xargs_adapter`. Two new feature flags on `brush-shell` (`experimental-bundled-extras` and `-findutils`). `install_default_providers()` now merges two registries (coreutils + extras) cleanly; no name collisions. Cross-provider pipeline `find . -maxdepth 1 -name "*.toml" \| wc -l` returns 6 on Windows. Three documented upstream limitations: findutils panics on EPIPE on Windows (upstream bug, same family as coreutils EPIPE noise); `xargs`/`find -exec` can't invoke shell builtins (inherent fork/exec behavior); argv lossy on non-UTF-8 OS args. None are blocking — they're upstream behaviors, not adapter bugs, and reflect the cost of bundling pre-existing CLI implementations rather than reimplementing. | Commit `5afebb0`. |
