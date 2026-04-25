@@ -76,6 +76,21 @@ experimental-bundled-coreutils = [
     "dep:brush-coreutils-builtins",
     "brush-coreutils-builtins/coreutils.all",
 ]
+# Adds Unix-only uutils utilities (id, groups, stat, timeout, install,
+# chmod, chown, chgrp, chroot, logname, tty, mkfifo, mknod, nice, nohup,
+# stty, kill, pinky, uptime, users, who, hostid). Builds only on Unix
+# targets — enabling on Windows triggers a Cargo dep-resolution error
+# because the Unix-only `uu_*` deps live in a `cfg(unix)` target table.
+experimental-bundled-coreutils-unix-extras = [
+    "experimental-bundled-coreutils",
+    "brush-coreutils-builtins/coreutils.all-unix",
+]
+# Adds Linux-only uutils utilities on top of -unix-extras (stdbuf via
+# LD_PRELOAD cdylib; chcon/runcon via libselinux). Linux only.
+experimental-bundled-coreutils-linux-extras = [
+    "experimental-bundled-coreutils-unix-extras",
+    "brush-coreutils-builtins/coreutils.all-linux",
+]
 experimental-load = ["dep:serde_json", "brush-core/serde"]
 experimental-parser = [
     "brush-core/experimental-parser",

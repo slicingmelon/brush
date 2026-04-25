@@ -26,7 +26,7 @@ dependencies = [
  "cfg-if",
  "once_cell",
  "version_check",
- "zerocopy",
+ "zerocopy 0.8.48",
 ]
 
 [[package]]
@@ -278,6 +278,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "bindgen"
+version = "0.72.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
+dependencies = [
+ "bitflags 2.11.1",
+ "cexpr",
+ "clang-sys",
+ "itertools 0.13.0",
+ "log",
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "rustc-hash",
+ "shlex",
+ "syn 2.0.117",
+]
+
+[[package]]
 name = "bit-set"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -480,6 +500,11 @@ dependencies = [
  "uu_basename",
  "uu_basenc",
  "uu_cat",
+ "uu_chcon",
+ "uu_chgrp",
+ "uu_chmod",
+ "uu_chown",
+ "uu_chroot",
  "uu_cksum",
  "uu_comm",
  "uu_cp",
@@ -500,22 +525,34 @@ dependencies = [
  "uu_false",
  "uu_fmt",
  "uu_fold",
+ "uu_groups",
  "uu_head",
+ "uu_hostid",
  "uu_hostname",
+ "uu_id",
+ "uu_install",
  "uu_join",
+ "uu_kill",
  "uu_link",
  "uu_ln",
+ "uu_logname",
  "uu_ls",
  "uu_md5sum",
  "uu_mkdir",
+ "uu_mkfifo",
+ "uu_mknod",
  "uu_mktemp",
  "uu_more",
  "uu_mv",
+ "uu_nice",
  "uu_nl",
+ "uu_nohup",
  "uu_nproc",
  "uu_numfmt",
  "uu_od",
  "uu_paste",
+ "uu_pathchk",
+ "uu_pinky",
  "uu_pr",
  "uu_printenv",
  "uu_printf",
@@ -525,6 +562,7 @@ dependencies = [
  "uu_realpath",
  "uu_rm",
  "uu_rmdir",
+ "uu_runcon",
  "uu_seq",
  "uu_sha1sum",
  "uu_sha224sum",
@@ -536,23 +574,31 @@ dependencies = [
  "uu_sleep",
  "uu_sort",
  "uu_split",
+ "uu_stat",
+ "uu_stdbuf",
+ "uu_stty",
  "uu_sum",
  "uu_sync",
  "uu_tac",
  "uu_tail",
  "uu_tee",
  "uu_test",
+ "uu_timeout",
  "uu_touch",
  "uu_tr",
  "uu_true",
  "uu_truncate",
  "uu_tsort",
+ "uu_tty",
  "uu_uname",
  "uu_unexpand",
  "uu_uniq",
  "uu_unlink",
+ "uu_uptime",
+ "uu_users",
  "uu_vdir",
  "uu_wc",
+ "uu_who",
  "uu_whoami",
  "uu_yes",
  "uucore",
@@ -801,6 +847,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cexpr"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fac387a98bb7c37292057cffc56d62ecb629900026402633ae9160df93a8766"
+dependencies = [
+ "nom 7.1.3",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -871,6 +926,17 @@ checksum = "57663b653d948a338bfb3eeba9bb2fd5fcfaecb9e199e87e1eda4d9e8b240fd9"
 dependencies = [
  "ciborium-io",
  "half",
+]
+
+[[package]]
+name = "clang-sys"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b023947811758c97c59bf9d1c188fd619ad4718dcaa767947df1cadb14f39f4"
+dependencies = [
+ "glob",
+ "libc",
+ "libloading",
 ]
 
 [[package]]
@@ -1261,6 +1327,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctor"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "352d39c2f7bef1d6ad73db6f5160efcaed66d94ef8c6c573a8410c00bf909a98"
+dependencies = [
+ "ctor-proc-macro",
+ "dtor",
+]
+
+[[package]]
+name = "ctor-proc-macro"
+version = "0.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52560adf09603e58c9a7ee1fe1dcb95a16927b17c127f0ac02d6e768a0e25bc1"
+
+[[package]]
 name = "ctrlc"
 version = "3.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1518,6 +1600,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "dtor"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1057d6c64987086ff8ed0fd3fbf377a6b7d205cc7715868cd401705f715cbe4"
+dependencies = [
+ "dtor-proc-macro",
+]
+
+[[package]]
+name = "dtor-proc-macro"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f678cf4a922c215c63e0de95eb1ff08a958a81d47e485cf9da1e27bf6305cfa5"
+
+[[package]]
 name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1612,6 +1709,12 @@ dependencies = [
  "rustix",
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "file_diff"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31a7a908b8f32538a2143e59a6e4e2508988832d5d4d6f7c156b3cbc762643a5"
 
 [[package]]
 name = "filedescriptor"
@@ -1746,6 +1849,16 @@ version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76ee7a02da4d231650c7cea31349b889be2f45ddb3ef3032d2ec8185f6313fd2"
 dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "fts-sys"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c03259139c9b098dd92241b046fedfeebcd6b000d491c821b24ced28558a9c2"
+dependencies = [
+ "bindgen",
  "libc",
 ]
 
@@ -1962,7 +2075,7 @@ checksum = "6ea2d84b969582b4b1864a92dc5d27cd2b77b622a8d79306834f1be5ba20d84b"
 dependencies = [
  "cfg-if",
  "crunchy",
- "zerocopy",
+ "zerocopy 0.8.48",
 ]
 
 [[package]]
@@ -2650,6 +2763,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "libloading"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
+dependencies = [
+ "cfg-if",
+ "windows-link",
+]
+
+[[package]]
 name = "libm"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2990,6 +3113,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
 dependencies = [
  "hermit-abi",
+ "libc",
+]
+
+[[package]]
+name = "num_threads"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
+dependencies = [
  "libc",
 ]
 
@@ -3377,7 +3509,7 @@ version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
- "zerocopy",
+ "zerocopy 0.8.48",
 ]
 
 [[package]]
@@ -3854,6 +3986,33 @@ name = "self_cell"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b12e76d157a900eb52e81bc6e9f3069344290341720e9178cde2407113ac8d89"
+
+[[package]]
+name = "selinux"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f4d7a0c34b924081f7fbdcb93121399f0d4182c0ec4bf9c01bfe4e7e21fcf16"
+dependencies = [
+ "bitflags 2.11.1",
+ "errno",
+ "libc",
+ "once_cell",
+ "parking_lot",
+ "selinux-sys",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "selinux-sys"
+version = "0.6.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "debaba5832b4831ffe0ba9118b526c752c960f41c46c4ef197d9a15f5179d6fd"
+dependencies = [
+ "bindgen",
+ "cc",
+ "dunce",
+ "walkdir",
+]
 
 [[package]]
 name = "semver"
@@ -4344,7 +4503,9 @@ checksum = "743bd48c283afc0388f9b8827b976905fb217ad9e647fae3a379a9283c4def2c"
 dependencies = [
  "deranged",
  "itoa",
+ "libc",
  "num-conv",
+ "num_threads",
  "powerfmt",
  "serde_core",
  "time-core",
@@ -4653,6 +4814,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
+name = "utmp-classic"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e24c654e19afaa6b8f3877ece5d3bed849c2719c56f6752b18ca7da4fcc6e85a"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "thiserror 1.0.69",
+ "time",
+ "utmp-classic-raw",
+ "zerocopy 0.7.35",
+]
+
+[[package]]
+name = "utmp-classic-raw"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22c226537a3d6e01c440c1926ca0256dbee2d19b2229ede6fc4863a6493dd831"
+dependencies = [
+ "cfg-if",
+ "zerocopy 0.7.35",
+]
+
+[[package]]
 name = "uu_arch"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4739,6 +4924,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "uu_chcon"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de53d68a10e38987ee27ecb07a8b1806312f35d75ff19f05a0ebb439bfba279f"
+dependencies = [
+ "clap",
+ "fluent",
+ "fts-sys",
+ "libc",
+ "selinux",
+ "thiserror 2.0.18",
+ "uucore",
+]
+
+[[package]]
 name = "uu_checksum_common"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4746,6 +4946,52 @@ checksum = "d9fcef261062ab5c670ed3c5e2a2be84c6b356cc8e98035f7a3484eaa41c449d"
 dependencies = [
  "clap",
  "fluent",
+ "uucore",
+]
+
+[[package]]
+name = "uu_chgrp"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a46a154de49e5f0949c2707234f08e4d2a8604eb0b2bb3d7161bde499f764455"
+dependencies = [
+ "clap",
+ "fluent",
+ "uucore",
+]
+
+[[package]]
+name = "uu_chmod"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "badd45e9215a3226bf3d0d43ba85cbd27428ceeec5e03c735ade81b9c16239e2"
+dependencies = [
+ "clap",
+ "fluent",
+ "thiserror 2.0.18",
+ "uucore",
+]
+
+[[package]]
+name = "uu_chown"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c0ad42ce1ca3755249f4c1a359de89bbfc9128408327a6eb9a53b2972a3d825"
+dependencies = [
+ "clap",
+ "fluent",
+ "uucore",
+]
+
+[[package]]
+name = "uu_chroot"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac3134b9447d76d77166394f01a9409ee9fe3fca7814a902f4b24c7356716af6"
+dependencies = [
+ "clap",
+ "fluent",
+ "thiserror 2.0.18",
  "uucore",
 ]
 
@@ -5016,6 +5262,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "uu_groups"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6079999d5f1fd49261d81f4d013ea646bb3894d32538ba4c8e4748330eae5bfa"
+dependencies = [
+ "clap",
+ "fluent",
+ "thiserror 2.0.18",
+ "uucore",
+]
+
+[[package]]
 name = "uu_head"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5025,6 +5283,18 @@ dependencies = [
  "fluent",
  "memchr",
  "thiserror 2.0.18",
+ "uucore",
+]
+
+[[package]]
+name = "uu_hostid"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90ce954c9b040791746fb6a5af19b14e8460eae619ab27bfbfecef41eaa69c36"
+dependencies = [
+ "clap",
+ "fluent",
+ "libc",
  "uucore",
 ]
 
@@ -5043,6 +5313,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "uu_id"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "701abc17994af31f0c9b081c9f35d0db317d95b3e0b6de6f44b8065ae473e804"
+dependencies = [
+ "clap",
+ "fluent",
+ "uucore",
+]
+
+[[package]]
+name = "uu_install"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d36d19c7d29fdf3bac22b4d2c095becc59ecf410cb1a338d2e5a21d121e16b2"
+dependencies = [
+ "clap",
+ "file_diff",
+ "filetime",
+ "fluent",
+ "thiserror 2.0.18",
+ "uucore",
+]
+
+[[package]]
 name = "uu_join"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5052,6 +5347,18 @@ dependencies = [
  "fluent",
  "memchr",
  "thiserror 2.0.18",
+ "uucore",
+]
+
+[[package]]
+name = "uu_kill"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1707b515d12317b942a63d5cc1e8f35a3fb5d10fcacd4f234dd734dde9e18fb8"
+dependencies = [
+ "clap",
+ "fluent",
+ "nix 0.31.2",
  "uucore",
 ]
 
@@ -5075,6 +5382,18 @@ dependencies = [
  "clap",
  "fluent",
  "thiserror 2.0.18",
+ "uucore",
+]
+
+[[package]]
+name = "uu_logname"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df1b68b9763e2676e1f3717f9e49e751e680115bbdb90b6f1b2037137f900b98"
+dependencies = [
+ "clap",
+ "fluent",
+ "libc",
  "uucore",
 ]
 
@@ -5122,6 +5441,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "uu_mkfifo"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bdefce18887394b21d226f39258718f27caf4e4cdde312d1674e0e4f57497a1d"
+dependencies = [
+ "clap",
+ "fluent",
+ "nix 0.31.2",
+ "uucore",
+]
+
+[[package]]
+name = "uu_mknod"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ae09c9b886a6dcd37df43c5094477f0245d76787f5cfba692d181f9bb9e0ebe"
+dependencies = [
+ "clap",
+ "fluent",
+ "nix 0.31.2",
+ "uucore",
+]
+
+[[package]]
 name = "uu_mktemp"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5165,6 +5508,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "uu_nice"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "253d12af4189525e5b68a71bef9d15e81d7a183c3117b7f7be7e37697411710d"
+dependencies = [
+ "clap",
+ "fluent",
+ "rustix",
+ "uucore",
+]
+
+[[package]]
 name = "uu_nl"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5174,6 +5529,19 @@ dependencies = [
  "fluent",
  "itoa",
  "regex",
+ "uucore",
+]
+
+[[package]]
+name = "uu_nohup"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10e18ab43776b3d49af3490b8aa8f452893f008199f887791131de6428b019ae"
+dependencies = [
+ "clap",
+ "fluent",
+ "libc",
+ "thiserror 2.0.18",
  "uucore",
 ]
 
@@ -5221,6 +5589,29 @@ name = "uu_paste"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a9f1bb267ba641c5fc3a5fb667d4a0fe2389550a64a17b36d9d07e5e3acf37a"
+dependencies = [
+ "clap",
+ "fluent",
+ "uucore",
+]
+
+[[package]]
+name = "uu_pathchk"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72574a199fd12550fa4b95a0984d0fe308036c6dc97400b62df0cbbb327591cf"
+dependencies = [
+ "clap",
+ "fluent",
+ "libc",
+ "uucore",
+]
+
+[[package]]
+name = "uu_pinky"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6dffa4955e5af79d77698d6964524afc0345e1ae2c660e34ff7c074d68fa573d"
 dependencies = [
  "clap",
  "fluent",
@@ -5334,6 +5725,20 @@ dependencies = [
  "clap",
  "fluent",
  "libc",
+ "uucore",
+]
+
+[[package]]
+name = "uu_runcon"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1756b031454e9578bba93eb1208001ec8d50d528fc6f076cfa2fe9678f159b6c"
+dependencies = [
+ "clap",
+ "fluent",
+ "libc",
+ "selinux",
+ "thiserror 2.0.18",
  "uucore",
 ]
 
@@ -5490,6 +5895,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "uu_stat"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be816279fef66994fbaabfe26890ff1396d260e68401f483ad9911fc560078db"
+dependencies = [
+ "clap",
+ "fluent",
+ "thiserror 2.0.18",
+ "uucore",
+]
+
+[[package]]
+name = "uu_stdbuf"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9de794032c429e56e635ecfddc12f6ed308616bdc069b247dff56224ae6fa85"
+dependencies = [
+ "clap",
+ "fluent",
+ "tempfile",
+ "thiserror 2.0.18",
+ "uu_stdbuf_libstdbuf",
+ "uucore",
+]
+
+[[package]]
+name = "uu_stdbuf_libstdbuf"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76456134495f449720bbcc5ee7ac1e63561e2a8bed44d281c87703bd651726d9"
+dependencies = [
+ "ctor",
+ "libc",
+]
+
+[[package]]
+name = "uu_stty"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad0bb1d0fc566c91748d613fff29b600f070744bfe06158e1d5148643bda2324"
+dependencies = [
+ "cfg_aliases",
+ "clap",
+ "fluent",
+ "nix 0.31.2",
+ "uucore",
+]
+
+[[package]]
 name = "uu_sum"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5572,6 +6026,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "uu_timeout"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8902750427f6436186b35a970755600846ffa7690541074363732f7995698413"
+dependencies = [
+ "clap",
+ "fluent",
+ "libc",
+ "nix 0.31.2",
+ "uucore",
+]
+
+[[package]]
 name = "uu_touch"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5640,6 +6107,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "uu_tty"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45d335a86d34b65fd220b6736d2a4f16b56f55b24ab3e68909ea1339182a63c6"
+dependencies = [
+ "clap",
+ "fluent",
+ "rustix",
+ "uucore",
+]
+
+[[package]]
 name = "uu_uname"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5686,6 +6165,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "uu_uptime"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4be3dfe9e408872b1f2e81b7b8ae5a1404668ab5ed0ad28a24c6c2b33fb25ad"
+dependencies = [
+ "clap",
+ "fluent",
+ "jiff",
+ "thiserror 2.0.18",
+ "uucore",
+]
+
+[[package]]
+name = "uu_users"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c3cd4c2b0207886bc0388693e7852e09a5676f11a2947e8edf1c066fb3e88cea"
+dependencies = [
+ "clap",
+ "fluent",
+ "utmp-classic",
+ "uucore",
+]
+
+[[package]]
 name = "uu_vdir"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5709,6 +6213,17 @@ dependencies = [
  "rustix",
  "thiserror 2.0.18",
  "unicode-width 0.2.2",
+ "uucore",
+]
+
+[[package]]
+name = "uu_who"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "081631d37061fb7df00ffba0ad4217ae5c103cb9c62d488e93e8f819933df9e5"
+dependencies = [
+ "clap",
+ "fluent",
  "uucore",
 ]
 
@@ -5752,6 +6267,7 @@ dependencies = [
  "data-encoding",
  "data-encoding-macro",
  "digest 0.10.7",
+ "dns-lookup",
  "dunce",
  "fluent",
  "fluent-bundle",
@@ -5776,13 +6292,16 @@ dependencies = [
  "procfs",
  "rustc-hash",
  "rustix",
+ "selinux",
  "sha1",
  "sha2",
  "sha3",
  "sm3",
  "thiserror 2.0.18",
+ "time",
  "unic-langid",
  "unit-prefix",
+ "utmp-classic",
  "uucore_procs",
  "walkdir",
  "wild",
@@ -6707,11 +7226,32 @@ checksum = "c6e61e59a957b7ccee15d2049f86e8bfd6f66968fcd88f018950662d9b86e675"
 
 [[package]]
 name = "zerocopy"
+version = "0.7.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b9b4fd18abc82b8136838da5d50bae7bdea537c574d8dc1a34ed098d6c166f0"
+dependencies = [
+ "byteorder",
+ "zerocopy-derive 0.7.35",
+]
+
+[[package]]
+name = "zerocopy"
 version = "0.8.48"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eed437bf9d6692032087e337407a86f04cd8d6a16a37199ed57949d415bd68e9"
 dependencies = [
- "zerocopy-derive",
+ "zerocopy-derive 0.8.48",
+]
+
+[[package]]
+name = "zerocopy-derive"
+version = "0.7.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

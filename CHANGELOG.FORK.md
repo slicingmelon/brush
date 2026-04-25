@@ -7,6 +7,127 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 
 ### ✨ Features
 
+#### `feat(coreutils): add 26 missing uutils/coreutils utilities + `[` alias`
+
+This is Cycle 1 of [`docs/planning/coreutils-coverage-expansion.md`](./docs/planning/coreutils-coverage-expansion.md).
+The goal of that plan is closing the gap between the 80 uutils utilities
+the fork shipped at MVP and the ~107 utilities `uutils/coreutils 0.8.0`
+actually provides — every command we missed is a `command not found` for
+shell scripts the fork was meant to host.
+
+After Phase 0 reconciled the to-add list against the canonical
+[`uutils/coreutils@0.8.0/Cargo.toml`](https://github.com/uutils/coreutils/blob/0.8.0/Cargo.toml),
+**26 utilities + 1 alias** are wired into `brush-coreutils-builtins`:
+
+| Group                                  | Utilities                                                                                                                                          | Cargo gate                              |
+|----------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------|
+| Cross-platform (Tier 1; was missing)   | `pathchk`                                                                                                                                          | `[dependencies]` (unconditional)        |
+| Unix-only (`feat_require_unix_core`)   | `chgrp`, `chmod`, `chown`, `chroot`, `groups`, `id`, `install`, `kill`*, `logname`, `mkfifo`, `mknod`, `nice`, `nohup`, `stat`, `stty`, `timeout`, `tty` | `[target.'cfg(unix)'.dependencies]`     |
+| Unix-only (`feat_require_unix_utmpx`)  | `pinky`, `uptime`, `users`, `who`                                                                                                                  | `[target.'cfg(unix)'.dependencies]`     |
+| Unix-only (`feat_require_unix_hostid`) | `hostid`                                                                                                                                           | `[target.'cfg(unix)'.dependencies]`     |
+| Linux-only (LD_PRELOAD or libselinux)  | `stdbuf`, `chcon`, `runcon`                                                                                                                        | `[target.'cfg(target_os = "linux")'.dependencies]` |
+| Alias                                  | `[`  (calls `uu_test::uumain`)                                                                                                                     | enabled by `coreutils.test`             |
+
+\* `kill` collides with brush's native `kill` builtin.
+[`brush-shell/src/bundled.rs::register_shims`](./brush-shell/src/bundled.rs)
+uses `register_builtin_if_unset`, so the native version wins for the
+shell-builtin lookup path. The bundled-dispatch fast path
+(`brush --invoke-bundled kill ...`) routes to uutils, which is the
+expected behavior for direct invocation.
+
+**New aggregate features in `brush-coreutils-builtins/Cargo.toml`**:
+
+- `coreutils.all` (existing) — every utility that builds on every Tier-1
+  target. Now includes `pathchk` (the only Tier-1 cross-platform utility
+  the fork was missing).
+- `coreutils.all-unix` (new) — `coreutils.all` + the Unix-only set above.
+  Builds only on Unix targets (the dep crates live in a `cfg(unix)`
+  target table). Enabling on Windows triggers a Cargo dep-resolution
+  error — by design.
+- `coreutils.all-linux` (new) — `coreutils.all-unix` + the Linux-only set.
+  Builds only on Linux.
+
+**New feature flags on `brush-shell/Cargo.toml`** (opt-in, layered):
+
+- `experimental-bundled-coreutils` (existing) — enables
+  `coreutils.all`. Behavior unchanged for Windows users; on Unix this
+  now also includes `pathchk` and the `[` alias.
+- `experimental-bundled-coreutils-unix-extras` (new) — adds the
+  Unix-only set on top.
+- `experimental-bundled-coreutils-linux-extras` (new) — adds the
+  Linux-only set on top of `-unix-extras`.
+
+**Installing the full Unix set** (replaces the bare-experimental install):
+
+```sh
+# Linux:
+cargo install --locked --path brush-shell --force \
+  --features experimental-builtins,experimental-bundled-coreutils-linux-extras
+
+# macOS / other Unix:
+cargo install --locked --path brush-shell --force \
+  --features experimental-builtins,experimental-bundled-coreutils-unix-extras
+
+# Windows: the bare experimental flag is still the right choice — uutils'
+# Unix-only crates (id, chmod, ...) are gated to cfg(unix) by upstream,
+# and there is no Windows port of these utilities to bundle.
+cargo install --locked --path brush-shell --force \
+  --features experimental-builtins,experimental-bundled-coreutils
+```
+
+**Why some utilities are still missing on Windows**: uutils itself ships
+`id`, `stat`, `chmod`, etc. only for Unix-class targets — they use POSIX
+APIs (`getuid()`, mode bits, signal numbers) that Windows lacks
+equivalents for. The fork follows uutils' gating: the Cargo deps for
+these utilities live in `[target.'cfg(unix)'.dependencies]`, so on
+Windows the dep is not in the graph and no compile is attempted.
+Windows users wanting `id` etc. should fall through to `PATH` — the
+Git Bash MSYS2 binaries are still resolvable.
+
+**What was removed from the original to-add candidate set during Phase 0**:
+
+- `hashsum` — not a separate `uu_*` dependency in 0.8.0; uutils ships
+  it only as a multi-call binary alias from the `coreutils` driver, with
+  no `uu_hashsum` crate to register here.
+
+**Binary-size impact** (dev unstripped on Windows, with
+`experimental-bundled-coreutils`): 42.8 MB (with `pathchk` + `[` alias).
+Cycle 1's incremental cost is bounded — Windows gains one new utility
+(`pathchk`), Unix gains 26 + the alias. Release-mode size measurement
+deferred — not a regression on Windows.
+
+**Files changed**
+
+- `brush-coreutils-builtins/Cargo.toml` — 26 new `coreutils.<name>`
+  features; new `coreutils.all-unix` and `coreutils.all-linux`
+  aggregates; new `[target.'cfg(unix)'.dependencies]` and
+  `[target.'cfg(target_os = "linux")'.dependencies]` blocks
+- `brush-coreutils-builtins/src/lib.rs` — `register!` lines for all 26
+  utilities (target-cfg-gated as appropriate) + `[` alias
+- `brush-shell/Cargo.toml` — two new opt-in feature flags
+  (`-unix-extras`, `-linux-extras`)
+
+**Smoke-tested** on Windows (`cargo build -p brush-shell --features
+experimental-bundled-coreutils`, exit 0):
+
+```text
+$ ./target/debug/brush.exe -c 'type pathchk; type "["; pathchk hello.txt && echo ok=$?; [ 1 = 1 ] && echo ok'
+pathchk is a shell builtin
+[ is a shell builtin
+ok=0
+ok
+```
+
+**Deferred to follow-up** (tracked in
+[`docs/planning/coreutils-coverage-expansion.md`](./docs/planning/coreutils-coverage-expansion.md)):
+
+- Phase 1.5 — YAML smoke tests for the new utilities. The harness
+  builds brush via `cargo_bin!("brush")` without specifying features, so
+  bundled-coreutils tests would need test-harness feature-flag plumbing
+  (a separate concern).
+- Phase 1.6 — `xtask coverage-check` to detect future drift between our
+  registry and upstream `uutils/coreutils` releases.
+
 #### `feat(bundled): plumb pipeline pgid through ExecutionContext`
 
 Adds `process_group_id: Option<i32>` to `brush_core::commands::ExecutionContext`

@@ -17,6 +17,21 @@ bench = false
 # No utilities are enabled by default, so plain `cargo build --workspace`
 # pays only for the scaffolding. Consumers opt into the full set by enabling
 # `coreutils.all` (or individual `coreutils.<name>` features).
+#
+# Aggregate features:
+#   * `coreutils.all`       — every utility that builds on every Tier-1
+#                             target (Linux, macOS, Windows).
+#   * `coreutils.all-unix`  — `coreutils.all` plus utilities that uutils
+#                             gates with `feat_require_unix_core` /
+#                             `feat_require_unix_utmpx` /
+#                             `feat_require_unix_hostid`. Builds only on
+#                             Unix targets — enabling on Windows triggers
+#                             a Cargo error because the Unix-only `uu_*`
+#                             deps live in a `cfg(unix)` target table.
+#   * `coreutils.all-linux` — `coreutils.all-unix` plus utilities that
+#                             require Linux specifically (`stdbuf` uses
+#                             a cdylib for `LD_PRELOAD`; `chcon`/`runcon`
+#                             need libselinux).
 default = []
 
 'coreutils.all' = [
@@ -68,6 +83,7 @@ default = []
     'coreutils.numfmt',
     'coreutils.od',
     'coreutils.paste',
+    'coreutils.pathchk',
     'coreutils.pr',
     'coreutils.printenv',
     'coreutils.printf',
@@ -102,6 +118,44 @@ default = []
     'coreutils.wc',
     'coreutils.whoami',
     'coreutils.yes',
+]
+
+'coreutils.all-unix' = [
+    'coreutils.all',
+    # feat_require_unix_core
+    'coreutils.chgrp',
+    'coreutils.chmod',
+    'coreutils.chown',
+    'coreutils.chroot',
+    'coreutils.groups',
+    'coreutils.id',
+    'coreutils.install',
+    'coreutils.kill',
+    'coreutils.logname',
+    'coreutils.mkfifo',
+    'coreutils.mknod',
+    'coreutils.nice',
+    'coreutils.nohup',
+    'coreutils.stat',
+    'coreutils.stty',
+    'coreutils.timeout',
+    'coreutils.tty',
+    # feat_require_unix_utmpx
+    'coreutils.pinky',
+    'coreutils.uptime',
+    'coreutils.users',
+    'coreutils.who',
+    # feat_require_unix_hostid
+    'coreutils.hostid',
+]
+
+'coreutils.all-linux' = [
+    'coreutils.all-unix',
+    # feat_require_unix (adds stdbuf on top of feat_require_unix_core)
+    'coreutils.stdbuf',
+    # feat_require_selinux
+    'coreutils.chcon',
+    'coreutils.runcon',
 ]
 
 'coreutils.arch' = ["dep:uu_arch"]
@@ -187,6 +241,49 @@ default = []
 'coreutils.whoami' = ["dep:uu_whoami"]
 'coreutils.yes' = ["dep:uu_yes"]
 
+# Cross-platform addition (Tier-1; missing from the original bundled set).
+'coreutils.pathchk' = ["dep:uu_pathchk"]
+
+# Unix-only — `feat_require_unix_core` in upstream uutils. The dep crates
+# live in `[target.'cfg(unix)'.dependencies]` below, so enabling these on
+# Windows produces a Cargo dep-resolution error (intended: Windows users
+# should enable `coreutils.all` rather than `coreutils.all-unix`).
+'coreutils.chgrp' = ["dep:uu_chgrp"]
+'coreutils.chmod' = ["dep:uu_chmod"]
+'coreutils.chown' = ["dep:uu_chown"]
+'coreutils.chroot' = ["dep:uu_chroot"]
+'coreutils.groups' = ["dep:uu_groups"]
+'coreutils.id' = ["dep:uu_id"]
+'coreutils.install' = ["dep:uu_install"]
+'coreutils.kill' = ["dep:uu_kill"]   # collides with brush's native kill builtin; register_builtin_if_unset keeps native winning
+'coreutils.logname' = ["dep:uu_logname"]
+'coreutils.mkfifo' = ["dep:uu_mkfifo"]
+'coreutils.mknod' = ["dep:uu_mknod"]
+'coreutils.nice' = ["dep:uu_nice"]
+'coreutils.nohup' = ["dep:uu_nohup"]
+'coreutils.stat' = ["dep:uu_stat"]
+'coreutils.stty' = ["dep:uu_stty"]
+'coreutils.timeout' = ["dep:uu_timeout"]
+'coreutils.tty' = ["dep:uu_tty"]
+
+# Unix-only — `feat_require_unix_utmpx` in upstream uutils.
+'coreutils.pinky' = ["dep:uu_pinky"]
+'coreutils.uptime' = ["dep:uu_uptime"]
+'coreutils.users' = ["dep:uu_users"]
+'coreutils.who' = ["dep:uu_who"]
+
+# Unix-only — `feat_require_unix_hostid`. Subset of Unix; only some
+# platforms provide `gethostid` in libc.
+'coreutils.hostid' = ["dep:uu_hostid"]
+
+# Linux-only — `feat_require_unix` extras (stdbuf uses a cdylib for
+# LD_PRELOAD; not portable to musl or BSD/macOS).
+'coreutils.stdbuf' = ["dep:uu_stdbuf"]
+
+# Linux-only — `feat_require_selinux`. Requires libselinux at link time.
+'coreutils.chcon' = ["dep:uu_chcon"]
+'coreutils.runcon' = ["dep:uu_runcon"]
+
 [lints]
 workspace = true
 
@@ -241,6 +338,7 @@ uu_nproc = { version = "0.8.0", optional = true }
 uu_numfmt = { version = "0.8.0", optional = true }
 uu_od = { version = "0.8.0", optional = true }
 uu_paste = { version = "0.8.0", optional = true }
+uu_pathchk = { version = "0.8.0", optional = true }
 uu_pr = { version = "0.8.0", optional = true }
 uu_printenv = { version = "0.8.0", optional = true }
 uu_printf = { version = "0.8.0", optional = true }
@@ -275,3 +373,40 @@ uu_vdir = { version = "0.8.0", optional = true }
 uu_wc = { version = "0.8.0", optional = true }
 uu_whoami = { version = "0.8.0", optional = true }
 uu_yes = { version = "0.8.0", optional = true }
+
+# Unix-only utilities. Gated at the target level so Windows builds with
+# `coreutils.all` (cross-platform aggregate) don't try to compile crates
+# that uutils itself ships only for Unix-class targets.
+[target.'cfg(unix)'.dependencies]
+# feat_require_unix_core
+uu_chgrp = { version = "0.8.0", optional = true }
+uu_chmod = { version = "0.8.0", optional = true }
+uu_chown = { version = "0.8.0", optional = true }
+uu_chroot = { version = "0.8.0", optional = true }
+uu_groups = { version = "0.8.0", optional = true }
+uu_id = { version = "0.8.0", optional = true }
+uu_install = { version = "0.8.0", optional = true }
+uu_kill = { version = "0.8.0", optional = true }
+uu_logname = { version = "0.8.0", optional = true }
+uu_mkfifo = { version = "0.8.0", optional = true }
+uu_mknod = { version = "0.8.0", optional = true }
+uu_nice = { version = "0.8.0", optional = true }
+uu_nohup = { version = "0.8.0", optional = true }
+uu_stat = { version = "0.8.0", optional = true }
+uu_stty = { version = "0.8.0", optional = true }
+uu_timeout = { version = "0.8.0", optional = true }
+uu_tty = { version = "0.8.0", optional = true }
+# feat_require_unix_utmpx
+uu_pinky = { version = "0.8.0", optional = true }
+uu_uptime = { version = "0.8.0", optional = true }
+uu_users = { version = "0.8.0", optional = true }
+uu_who = { version = "0.8.0", optional = true }
+# feat_require_unix_hostid
+uu_hostid = { version = "0.8.0", optional = true }
+
+# Linux-only utilities. stdbuf uses a cdylib (LD_PRELOAD) that doesn't
+# build on musl or non-Linux Unixes; chcon/runcon require libselinux.
+[target.'cfg(target_os = "linux")'.dependencies]
+uu_stdbuf = { version = "0.8.0", optional = true }
+uu_chcon = { version = "0.8.0", optional = true }
+uu_runcon = { version = "0.8.0", optional = true }
