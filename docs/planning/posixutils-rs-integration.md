@@ -1,10 +1,38 @@
 # posixutils-rs — Integration Planning
 
-> **Status**: planning · **Created**: 2026-04-25 · **Owner**: @slicingmelon
+> **Status**: ✅ **Cycle 0 cohort COMPLETE** (sed + awk + grep shipped on
+> branch `feat/posixutils-rs-integration`, 2026-04-25); Cycles 1–3
+> (m4 / bc / make / patch via posixutils-rs upstream engagement)
+> **DEFERRED INDEFINITELY** pending user demand. Re-open by filing the
+> Cycle 1 upstream issue and resetting this header to "in progress".
+>
+> **Created**: 2026-04-25 · **Owner**: @slicingmelon
 > **Tracks**: gap-fillers (`grep`, `sed`, `awk`, `make`, `m4`, `bc`) that the
 > uutils ecosystem doesn't ship today. Supersedes the indefinite-defer
 > conclusion in [`docs/research/grep-sed-awk-options.md`](../research/grep-sed-awk-options.md)
 > *only* if posixutils-rs becomes integration-ready.
+>
+> ### Shipped summary
+>
+> | Cycle | Utility | Mechanism | Commit | Flag |
+> |---|---|---|---|---|
+> | 0a | `sed` | crates.io dep on `uutils/sed = "0.1.1"` | `768a671` | `experimental-bundled-extras-uutils-sed` |
+> | 0c-revised | `awk` | crates.io dep on `pegasusheavy/awk-rs = "0.1.0"` | `8898b3a` | `experimental-bundled-extras-awk-rs` |
+> | 0b-revised PR 1 | (gates record) | MSRV + Windows-build both green | `bd887e2` | — |
+> | 0b-revised PR 2 | `grep` + `fastgrep` aliases | crates.io dep on `awnion/fastgrep = "0.1.8"` | `2b89425` | `experimental-bundled-extras-fastgrep` |
+>
+> All four commits are on branch `feat/posixutils-rs-integration` (4 ahead
+> of `main`); see CHANGELOG.FORK.md Unreleased section for the full notes.
+>
+> ### Deferred
+>
+> `m4`, `bc`, `make`, `patch` — original Cycles 1–3 (posixutils-rs upstream
+> engagement) cover these. Their gap-filler crates remain bin-only and
+> tied to posixutils-rs's internal `plib` libc wrapper, so vendoring fans
+> out and the upstream needs `[lib]` exposure work first. No upstream
+> issue has been filed; do that as the entry point if user demand for any
+> of these materializes. The cycle skeletons (Cycles 1/2/3 below) are
+> still accurate plans — they were just not executed in this round.
 >
 > ⚠️ **Update 2026-04-25 (afternoon)** — this plan was originally framed as
 > "wait for posixutils-rs upstream to expose `[lib]` + publish to crates.io".
@@ -58,14 +86,46 @@ work.
 - `uutils/diffutils` Cycle 3 is **deferred** awaiting upstream
   `pub mod diff;` (no action here).
 - Source-evaluation sweep complete — see §"Alternative sources reviewed".
+- **Cycle 0a — `sed` shipped via `uutils/sed = "0.1.1"`** (commit `768a671`).
+  Plain `sed::sed::uumain` adapter, ~3 lines. Smoke-verified on Windows
+  (rustc 1.88.0). Flag: `experimental-bundled-extras-uutils-sed`.
+- **Cycle 0c-revised — `awk` shipped via `pegasusheavy/awk-rs = "0.1.0"`**
+  (commit `8898b3a`). Adapter ports upstream `src/main.rs::run()`
+  line-for-line (~150 lines, not 50 — the upstream CLI driver was
+  longer than the original estimate). Smoke-verified on Windows.
+  Flag: `experimental-bundled-extras-awk-rs`.
+- **Cycle 0b-revised PR 1 — gates green** (commit `bd887e2`). MSRV
+  decision: option (b) feature-conditional. Windows smoke gate:
+  `cargo install fastgrep` builds clean in 35s, runtime checks all
+  pass (`--version`, `-rn`, stdin, no-match exit 1, EPIPE-safe under
+  `| head`, trigram cache directory creation). Cycle 0b-fallback
+  (vendor) NOT triggered.
+- **Cycle 0b-revised PR 2 — `grep` + `fastgrep` shipped via
+  `awnion/fastgrep = "0.1.8"`** (commit `2b89425`). Adapter ports
+  upstream `src/bin/grep.rs::main()` line-for-line (~370 lines) into
+  a new module [`brush-bundled-extras/src/grep_adapter.rs`](../../brush-bundled-extras/src/grep_adapter.rs).
+  Both `grep` and `fastgrep` register as bundled aliases dispatching
+  to the same adapter. Three intentional behavioral deviations from
+  GNU grep (file-size limit, line truncation, parallel output order)
+  documented in CHANGELOG. MSRV requirement (rustc ≥ 1.92) is
+  per-flag, not workspace-wide. Flag: `experimental-bundled-extras-fastgrep`.
 
-### What's next (Cycle 0a/0b/0c — execute in order)
+### What's deferred (Cycles 1–3, m4/bc/make/patch only)
 
-| Order | Cycle | Add | Mechanism | Section anchor |
-|---|---|---|---|---|
-| 1 | **0a** | `sed` | crates.io dep on `sed = "0.1.1"` (uutils/sed). Standard `uumain` API; uucore 0.8.0 = exact match. **No MSRV friction (sed MSRV 1.88 = brush MSRV 1.88).** | [§"Cycle 0 — Quick wins"](#cycle-0--quick-wins-no-vendoring-required) |
-| 2 | **0c-revised** | `awk` | crates.io dep on `awk-rs = "0.1.0"` (pegasusheavy/awk-rs). `[lib]` exposes `Lexer`/`Parser`/`Interpreter`; adapter mirrors upstream `main.rs` (~50 lines glue). **No MSRV friction (awk-rs MSRV 1.85 < brush MSRV 1.88).** CI tests Windows. | [§"Cycle 0c-revised"](#cycle-0c-revised--awk-via-cratesio-dep-on-awk-rs) |
-| 3 | **0b-revised** | `grep` + `fastgrep` alias | crates.io dep on `fastgrep = "0.1.8"` (awnion/fastgrep). `[lib]` exposes building blocks; adapter mirrors `src/bin/grep.rs` (~400 lines glue). **MSRV gate first — fastgrep needs rustc ≥ 1.92, brush is 1.88.** Then **Windows smoke gate** (fastgrep CI doesn't cover Windows). If either gate fails, fall back to Cycle 0b-fallback (vendor from posix-tools-for-windows). | [§"Cycle 0b-revised"](#cycle-0b-revised--grep-via-cratesio-dep-on-awnionfastgrep) |
+| Utility | Status | Why deferred | Trigger to re-open |
+|---|---|---|---|
+| `m4` | Deferred indefinitely | posixutils-rs `m4/` crate is bin-only and pulls internal `plib` libc wrapper; vendoring fans out across 23 sibling utilities. | Hard user demand; or upstream lands `[lib]` exposure (file Cycle 1 issue first). |
+| `bc` | Deferred indefinitely | Same — posixutils-rs `calc/` crate is bin-only with `plib` fan-out. | Same. |
+| `make` | Deferred indefinitely | Same — posixutils-rs `make/` crate is bin-only with `plib` fan-out. | Same. |
+| `patch` | Deferred indefinitely | Same — posixutils-rs `text/` crate (which also ships `patch`) is bin-only with `plib` fan-out. | Same. |
+| `diff` | Deferred (separate plan) | `uutils/diffutils` v0.5.0 still missing `pub mod diff;`. | Tracked in [`coreutils-coverage-expansion.md`](./coreutils-coverage-expansion.md) Cycle 3, not this doc. |
+
+The original Cycle 1 (upstream engagement at posixutils-rs) is the
+correct entry point if any of these become priorities — see §"PDCA
+Cycle 1 — Upstream engagement" below for the issue template + 90-day
+abort condition. **No upstream issue has been filed yet** as of this
+writing; the deferral is "no user demand surfaced", not "blocked on
+upstream".
 
 ### How each utility plugs in
 
@@ -102,24 +162,21 @@ explicit option list.
   for `brush-bundled-extras` precedent (find/xargs adapters) and the
   related coreutils-extras flag plumbing on `brush-shell`.
 
-### Concrete first commit suggestions
+### Realized scope (what actually landed vs. what the plan estimated)
 
-- **Cycle 0a** (sed): one PR, ~30 min. Add `sed = "0.1.1"` dep, write
-  `sed_adapter`, register, flag, smoke test (`brush -c "echo a | sed s/a/b/"`),
-  CHANGELOG. Lowest-risk; ship first.
-- **Cycle 0c-revised** (awk): one PR, ~1 hour. Adapter mirrors
-  `pegasusheavy/awk-rs/src/main.rs::run` arg parsing; ~50 lines.
-  Smoke tests in DoD section.
-- **Cycle 0b-revised** (grep + fastgrep): two PRs.
-  - PR 1: MSRV decision + Windows smoke gate (no production code yet,
-    just a throwaway branch verifying fastgrep builds + runs on Windows).
-    Document outcome in this plan's Decision Log.
-  - PR 2 (only if PR 1 passes): adapter + dual-name registration +
-    CHANGELOG with the three behavioral-deviation notes.
+The first-commit suggestions in the original plan were optimistic on
+adapter line counts. The actuals:
 
-If Cycle 0b-revised PR 1 fails the Windows gate → switch to Cycle
-0b-fallback (vendor from posix-tools-for-windows). The user-visible
-outcome (working `grep`) is the same.
+| Cycle | Plan estimate | Actual | Notes |
+|---|---|---|---|
+| **0a** (sed) | ~30 min, plain `uumain` adapter | ~3 lines of adapter, ~30 min total | Estimate matched. Plain `sed::sed::uumain(args.into_iter())` works. SIGPIPE/localization-init from `uucore::bin!` was intentionally omitted (bundled dispatch runs sed in a fresh subprocess so pipe-close is delegated to the OS). |
+| **0c-revised** (awk) | ~1 hour, ~50 lines of glue | ~150 lines, ~1 hour | `awk-rs`'s lib doesn't expose a single `run(args)` entrypoint, so the adapter ports upstream `main.rs::run` line-for-line. Estimate was 3× short on lines but right on time. |
+| **0b-revised** (grep) | Two PRs; ~400 lines of glue | Two PRs (`bd887e2`, `2b89425`); ~370 lines in a separate `grep_adapter` module | Estimate was accurate. PR-split discipline paid off — gates lived in their own commit so the impl PR could be reverted independently if it broke. |
+
+Cycle 0b-revised PR 1's Windows gate **passed**, so Cycle 0b-fallback
+(vendor from posix-tools-for-windows) was not triggered and stays
+unwritten. If a future fastgrep release regresses Windows, the
+fallback path remains the documented escape route.
 
 ---
 
@@ -1268,6 +1325,9 @@ For Cycle 3:
 |---|---|---|---|
 | 2026-04-25 | (planning, draft) | Plan drafted via PDCA. posixutils-rs verified rich (109 utilities at Stage 3) but **integration-blocked**: gap-filler crates `text/` (grep, sed) and `awk/` are binary-only with no `[lib]`; not on crates.io. Bundle slot reserved at `experimental-bundled-extras-posixutils` under existing `brush-bundled-extras` mega-crate (consistent with coverage-expansion Cycle 2's "one mega-crate for non-coreutils" decision). Cycles 1–3 structured as upstream-engagement → prototype → selective integration. Selective scope: `awk`, `grep`, `sed`, `make`, `m4`, `bc`; vi/cron/cc/etc. excluded. | Raw `Cargo.toml` fetches for `text/`, `awk/`, `process/` (process/ has `[lib]`; others don't); crates.io 404 for `posixutils-awk`; posixutils-rs README maturity table; no relevant open upstream issues as of 2026-04-25. |
 | 2026-04-25 | (planning, reflexion) | Reflexion review scored draft 3.50/5.0, below 4.0 threshold. Amendments: (1) Verified `m4/`, `make/`, `calc/` Cargo.toml — all binary-only, no `[lib]`. Updated §2b table to remove ❓ entries; blockage now confirmed *uniform* across all five gap-filler crates, not heterogeneous. (2) Added §6 "Alternatives considered" enumerating vendoring (rejected on consume-as-published discipline), binary-embedding (rejected on bloat), brush-side fork maintenance (rejected on cargo-on-crates.io constraint + ongoing-maintenance cost). (3) Added Cycle 1 "Abort condition (time-bound)" — 90-day budget from issue filing; if no upstream traction in that window, plan stalls and coverage-expansion Cycle 5's defer conclusion remains active. (4) Cycle 2 prototype rationale made explicit: prototype with `m4`/`bc` (small surface area) validates the *adapter pattern* without confounding from `awk`/`grep`/`sed` utility-semantics complexity; pattern is invariant under utility complexity. (5) Cycle 2 dependency strategy spelled out: `git`-URL on a brush-side `proto/` branch (never `main`), explicitly NOT a long-running fork, discarded after prototype validation. | Reflexion report 2026-04-25; this doc post-amendment. |
+| 2026-04-25 (Cycle 0a shipped) | (implementation, sed adapter merged) | Cycle 0a executed exactly as the plan prescribed. Added `sed = "0.1.1"` optional dep + `extras.sed` / `extras.uutils-sed-all` features to `brush-bundled-extras`; wrote 3-line `sed_adapter` calling `sed::sed::uumain(args.into_iter())`; registered in `bundled_commands()`; added `experimental-bundled-extras-uutils-sed` flag on `brush-shell` and extended the `cfg(any(...))` gate in `brush-shell/src/bundled.rs::install_default_providers`. Per-component bumps: `brush-bundled-extras` 0.1.0 → 0.1.1, `brush-shell` 0.3.1 → 0.3.2 (path-dep `^0.1.1`). SIGPIPE/localization init from `uucore::bin!` intentionally omitted — bundled dispatch always runs sed in a fresh `brush --invoke-bundled` subprocess so pipe-close is delegated to the OS. Smoke-verified on Windows (rustc 1.88.0): `echo a \| sed s/a/b/` → `b`; `type sed` → builtin; `sed --version` → `sed 0.1.1`; `-n '2p'` address printing and `s/o/O/g` global substitution both work. Maturity caveat (uutils/sed pre-feature-complete) recorded in CHANGELOG. | Commit `768a671`; CHANGELOG.FORK.md Unreleased / Features. |
+| 2026-04-25 (Cycle 0c-revised shipped) | (implementation, awk adapter merged) | Cycle 0c-revised executed; adapter line count came in at ~150 (not the plan's ~50 estimate) because `awk-rs`'s public lib exposes `Lexer`/`Parser`/`Interpreter` but not a single `run(args)` entrypoint, so the brush-side adapter ports upstream `src/main.rs::run()` line-for-line. Added `awk-rs = "0.1.0"` optional dep + `extras.awk` / `extras.awk-rs-all` features; wrote `awk_adapter` (BundledFn shim) + `awk_run` (port of upstream main.rs::run) + `print_awk_help`; registered in `bundled_commands()`; added `experimental-bundled-extras-awk-rs` flag and extended the cfg gate. Per-component bumps: `brush-bundled-extras` 0.1.1 → 0.1.2, `brush-shell` 0.3.2 → 0.3.3. Smoke-verified on Windows: DoD #1 (`echo 'a b c' \| awk '{print $2}'` → `b`) and DoD #2 (`BEGIN{for...sum...}` → `55`) both pass; `--version`, `-F`/`-v` flags, `length()`/END-block accumulator all behave correctly. **DoD #3 caveat documented**: `find … \| xargs awk '...'` does NOT work on Windows because xargs `execvp`s its target which doesn't see brush builtins, and Windows lacks `awk.exe` on PATH unless Git Bash is installed. Linux/macOS unaffected. Recorded in CHANGELOG. Awk-rs upstream maturity caveat (single-author + dependabot, repo URL currently 404s — source previously at quinnjr/rawk, crates.io tarball is authoritative) also documented. | Commit `8898b3a`; CHANGELOG.FORK.md Unreleased / Features. |
+| 2026-04-25 (Cycle 0b-revised PR 2 shipped) | (implementation, grep + fastgrep aliases merged) | Cycle 0b-revised PR 2 executed after PR 1 gates went green (see row immediately below). Added `fastgrep = "0.1.8"` + `clap = "4"` + `kanal = "0.1"` optional deps + `extras.grep` / `extras.fastgrep-all` features; created new module `brush-bundled-extras/src/grep_adapter.rs` (~370 lines) porting upstream `src/bin/grep.rs::main()` line-for-line with four small adaptations (Cli::try_parse_from instead of Cli::parse; ExitCode→i32; replaced expect("…") with handled error; hardcoded "0.1.8" version string instead of upstream's `env!("GIT_SHA")`); registered both `grep` and `fastgrep` in `bundled_commands()` dispatching to the same adapter (matches upstream README's "installed binary is called `grep`" intent). Added `experimental-bundled-extras-fastgrep` flag with explicit MSRV ≥ 1.92 note; extended cfg gate. Per-component bumps: `brush-bundled-extras` 0.1.2 → 0.1.3, `brush-shell` 0.3.3 → 0.3.4. Smoke-verified on Windows (rustc 1.95.0): both names register; `--version` prints fastgrep banner via either alias; recursive search returns matches with `path:lineno:line` format; no-match exits 1; case-insensitive stdin search works; `grep -rn ... \| head -2` (with bundled head) returns 2 lines exit 0 (EPIPE-safe). Three intentional behavioral deviations from GNU grep (100 MiB file-size limit, 15000-byte line truncation, non-deterministic parallel output order) inherited from upstream verbatim and documented in CHANGELOG. ~10 GNU grep flags catalogued as unsupported by upstream (`-G`/`-P`/`-z`/`--line-buffered`/`-R`/`-d`/`-D`/`--binary-files`/`-NUM`); common interactive flags all supported. Cycle 0b-fallback (vendor from posix-tools-for-windows) NOT triggered and stays unwritten. | Commit `2b89425`; CHANGELOG.FORK.md Unreleased / Features; new `brush-bundled-extras/src/grep_adapter.rs` module. |
 | 2026-04-25 (Cycle 0b-revised gate execution) | (implementation, gates passed) | Cycle 0b-revised PR 1 (the throwaway gate branch the plan calls for) executed on Windows 11 with rustc 1.95.0. **MSRV gate**: chose option (b) feature-conditional MSRV — workspace stays at 1.88.0; `experimental-bundled-extras-fastgrep` documented as requiring rustc ≥ 1.92. Host rustc 1.95.0 satisfies the constraint, so the brush-side smoke test could proceed. **Windows-build smoke gate**: `cargo install fastgrep --version 0.1.8 --root <tmp>` built cleanly in 35s producing `grep.exe`. Runtime checks: `grep --version` prints fastgrep banner with index version + feature list; `grep -rn 'fn main' brush-shell/src` returns the two `bash.rs`/`brush.rs` matches with `path:lineno:line` format and exit 0; stdin path `echo hello | grep h` works; no-match search exits 1; pipeline `grep -rn ... \| head -2` is EPIPE-safe (returns 2 lines, exit 0, no panic); trigram cache directory created at `$LOCALAPPDATA/fastgrep/trigram` — Windows `dirs` resolution works. **All gates GREEN — Cycle 0b-revised PR 2 (production adapter + dual-name registration) cleared to proceed; Cycle 0b-fallback (vendor from posix-tools-for-windows) NOT triggered.** | This Decision Log row; `cargo install fastgrep` log; smoke command output captured in branch `feat/posixutils-rs-integration` working notes. |
 | 2026-04-25 (late evening, post-fastgrep) | (planning, MSRV verification + implementer-entry-point) | User asked "what is MSRV check?", then asked to verify brush's MSRV against the candidates. Findings: brush workspace MSRV is **1.88.0** ([root Cargo.toml:27](../../Cargo.toml#L27)) on edition 2024; local toolchain 1.95.0. **Per-candidate**: `awk-rs` MSRV 1.85 ✅ (under brush; no friction); `uutils/sed` 0.1.1 MSRV 1.88 ✅ (exact match; no friction); `fastgrep` 0.1.8 MSRV 1.92 ❌ (4 versions above brush). Cycle 0b-revised gains a new mandatory **gate 0 (MSRV)** with four explicit options: (a) bump brush MSRV 1.88→1.92, (b) feature-conditional MSRV documented as "experimental flag requires 1.92" — **recommended default**, (c) file upstream PR at fastgrep to drop MSRV (parallel ask), (d) fall back to Cycle 0b-fallback. Also added a "▶︎ Start here (for the implementer picking this up)" section at the top of the plan with concrete first-commit suggestions for Cycles 0a/0b/0c, the integration-pattern reference, and pointers to companion docs ([`coreutils-coverage-expansion.md`](./coreutils-coverage-expansion.md) for the existing adapter pattern; [`docs/research/grep-sed-awk-options.md`](../research/grep-sed-awk-options.md) for prior research). The research doc also gets a supersedence header pointing back here. Together these changes make the plan executable by a fresh Claude Code agent — read "Start here", pick a cycle, ship. | This Decision Log row; new "▶︎ Start here" section in this doc; new gate 0 in Cycle 0b-revised; supersedence header in `docs/research/grep-sed-awk-options.md`. |
 | 2026-04-25 (late evening) | (planning, third-pass sweep — fastgrep) | User cloned [`awnion/fastgrep`](https://github.com/awnion/fastgrep) at `C:\Tools\brush-shell-resources\fastgrep` and proposed using it as the brush-side `grep` (registered as both `grep` and `fastgrep`, matching upstream README's "installed binary is called `grep`" intent). Audit against the selection criteria: (1) **POSIX/GNU compat** ✅ — upstream README declares "drop-in replacement for GNU grep"; [`GNU_GREP_COMPAT.md`](https://github.com/awnion/fastgrep/blob/main/GNU_GREP_COMPAT.md) catalogues only ~10 unsupported flags (`-G`/`-P`/`-z`/`--line-buffered`/`-R`/`-d`/`-D`/`--binary-files`/`-NUM`); 10 integration-test files comparing against GNU grep behavior. (2) **Maintenance** ✅ — active single-author commit cadence (Jan/Feb/Mar/Apr 2026); 5 CI workflows (build, lint, test, ci, release); CHANGELOG; ARCHITECTURE.md; AI_AGENT_GREP_USECASES.md; ENVIRONMENT.md. (3) **Performance** ✅ — Criterion benches: **2–12× faster than GNU grep** on hot paths (sparse-literal `-rn` 4.4×, dense `-rc` 12×, regex `-rn` 9.4×); SIMD via `memchr`, parallel by default, lazy trigram index. (4) **Cross-platform** ⚠️ — **CI matrix is `[ubuntu-latest, macos-latest]` only — no Windows.** Mitigation: brush-side Windows smoke gate before merge (build + run grep with `-rn`/stdin/EPIPE checks; verify trigram cache dir resolution via `dirs` crate; verify `memmap2` reads on Windows path semantics). If smoke gate fails, fall back to vendoring grep from posix-tools-for-windows (Cycle 0b-fallback). (5) **License** ✅ — MIT OR Apache-2.0. (6) **Lib API** ✅ — `pub mod {cli, output, pattern, searcher, threadpool, trigram, walker}`; bin target literally named `grep`. **Decision: Cycle 0b is reframed as Cycle 0b-revised (clean crates.io dep on `fastgrep = "0.1.8"`); the prior Cycle 0b (vendor from posix-tools-for-windows) is withdrawn but kept as Cycle 0b-fallback explicitly conditioned on the Windows smoke gate failing.** Both `grep` and `fastgrep` aliases registered in `bundled_commands()` per user request + upstream intent. Three intentional behavioral deviations from GNU grep recorded for CHANGELOG: 100 MiB default file-size limit (override `FASTGREP_NO_LIMIT=1` or `--max-file-size`), 15000-byte default line truncation (override `--max-line-len=0`), non-deterministic output order (parallel; force serial with `-j1`). MSRV 1.92 (2024 edition) — verify against brush MSRV alongside the awk-rs MSRV check. | New `fastgrep` row in §"Sources surveyed", §"Scorecard", §"Hard rejections" (with posix-tools-for-windows-grep demoted to fallback). Cycle 0b reframed; Cycle 0b-fallback added. Bundle layout updated with `fastgrep` dep and `extras.fastgrep-all` aggregate. Code reviewed: `C:\Tools\brush-shell-resources\fastgrep\{Cargo.toml,README.md,GNU_GREP_COMPAT.md,src/lib.rs,src/bin/grep.rs,.github/workflows/_test.yml}`. |
