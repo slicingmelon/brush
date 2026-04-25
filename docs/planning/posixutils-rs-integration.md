@@ -5,6 +5,41 @@
 > uutils ecosystem doesn't ship today. Supersedes the indefinite-defer
 > conclusion in [`docs/research/grep-sed-awk-options.md`](../research/grep-sed-awk-options.md)
 > *only* if posixutils-rs becomes integration-ready.
+>
+> ⚠️ **Update 2026-04-25 (afternoon)** — this plan was originally framed as
+> "wait for posixutils-rs upstream to expose `[lib]` + publish to crates.io".
+> A second sweep of alternative sources (see new section
+> [§"Alternative sources reviewed"](#alternative-sources-reviewed--2026-04-25)
+> immediately below) found that:
+>
+> - **`sed`** can ship *now* via a clean crates.io dep on
+>   [`uutils/sed`](https://github.com/uutils/sed) v0.1.1 — uucore 0.8.0 pin
+>   matches ours, standard `uumain` API, zero vendoring.
+> - **`awk`** can ship *now* via a clean crates.io dep on
+>   [`pegasusheavy/awk-rs`](https://github.com/pegasusheavy/awk-rs) v0.1.0 —
+>   public `[lib]` API, **CI matrix includes Windows**, dual MIT/Apache-2.0,
+>   639 tests / 86% library coverage, Criterion benchmarks, ~80ms vs
+>   gawk's ~50ms on 100k-line sum (1.6× slower than reference, acceptable).
+>   Discovered in the second-pass sweep; supersedes the first-pass plan to
+>   vendor awk from posix-tools-for-windows.
+> - **`grep`** can ship *now* via a clean crates.io dep on
+>   [`awnion/fastgrep`](https://github.com/awnion/fastgrep) v0.1.8 —
+>   "drop-in replacement for GNU grep" per upstream README, **2–12× faster
+>   than GNU grep** on Criterion-measured workloads, dual MIT/Apache-2.0,
+>   public `[lib]` API, bin target literally named `grep`. Discovered in
+>   the third-pass sweep; supersedes the second-pass plan to vendor grep
+>   from posix-tools-for-windows. **One material gap**: upstream CI tests
+>   only Ubuntu + macOS — Windows-buildability and Windows-correctness
+>   need a brush-side smoke-test gate before ship.
+> - **`m4` / `bc` / `make` / `patch`** remain blocked on posixutils-rs's
+>   `plib`-shared internal dependency web; the original Cycle 1 upstream-
+>   engagement plan still applies for these.
+>
+> The original §6a stance ("vendoring must not become the default escape
+> hatch") is **softened** — selective vendoring of *self-contained* upstream
+> sources is now an accepted Cycle 0 path, conditional on per-utility audit
+> + test extension. See the new section for the rationale and the Decision
+> Log rows dated 2026-04-25 (afternoon) and 2026-04-25 (evening).
 
 ## TL;DR (honest framing)
 
@@ -48,6 +83,399 @@ current release. They:
 | 1 | Upstream engagement: file issue at posixutils-rs proposing `[lib]` + crates.io publication for the gap-filler crates | 1 day | High (it's a doc + an upstream PR/issue) | Yes |
 | 2 | Local prototype on a fork branch: patch one crate to add `[lib]`, exercise the adapter pattern, prove the integration shape works | 1–2 days | Medium | Yes |
 | 3 | Selective integration once Cycle 1 lands upstream: ship 4–6 high-value gap-fillers behind feature flags | 2–4 days | Medium (depends on per-utility quality) | Yes |
+
+## Alternative sources reviewed — 2026-04-25
+
+A parallel sweep of cloned upstream sources at
+`C:\Tools\brush-shell-resources\` evaluated six repos as candidate sources
+for the gap-filler utilities. Findings, with per-utility verdicts that
+supersede the original "wait for posixutils-rs upstream" framing for
+sed/awk/grep specifically:
+
+### Selection criteria for any candidate source
+
+Before any source is accepted (whether for crates.io dep or vendoring),
+it must meet a baseline on each axis. These are graded — none is binary
+pass/fail — but a source that scores low on multiple axes is rejected.
+
+| Axis | What we measure | Why |
+|---|---|---|
+| **POSIX/Linux compatibility** | Does it pass a recognized reference suite? Have side-by-side comparison tests against gawk/grep/sed? Does the README claim conformance with backed evidence? | Bundled brush utilities must produce the *same* output as Linux/macOS counterparts. A "POSIX-compatible" claim without a test suite isn't enough. |
+| **Maintenance signal** | Active CI? Issue tracker traffic? Recent commits? Multi-contributor or single-author? Test-coverage badge? Released on crates.io? | If we vendor, we own the code forever; if we depend, upstream rot blocks us. Both modes need a real upstream. |
+| **Performance** | Documented benchmarks (Criterion or similar)? Throughput numbers vs reference implementation? No O(n²) algorithms on hot paths? | Brush is a shell — pipelines flow large amounts of data through these utilities. A correct-but-slow `awk` makes brush feel sluggish. |
+| **Cross-platform** | CI matrix includes Windows? Path handling tested with `\` separators? No Unix-only crates (`nix`, `libc::ioctl`, etc.) on the hot path? | Brush's headline use case is Git Bash replacement on Windows. A Linux-only utility is a non-starter. |
+| **License compatibility** | MIT, Apache-2.0, or MIT/Apache-2.0 dual. GPL is incompatible with brush's MIT licensing. | Hard requirement. |
+| **Library API quality** | `[lib]` exposed (preferred) or self-contained binary source we can rename to a public function (vendorable). Stable signature. | Determines whether crates.io dep or vendor is the cheaper path. |
+
+These criteria apply uniformly. The per-utility verdicts below all
+record where each candidate scores on each axis — no source has been
+accepted on enthusiasm alone.
+
+### Sources surveyed
+
+| Repo | Origin | License | Last commit | Role |
+|---|---|---|---|---|
+| `posixutils-rs` | [`rustcoreutils/posixutils-rs`](https://github.com/rustcoreutils/posixutils-rs) | MIT | 2026-04-03 | 109 utilities at Stage 3; **bin-only**, no `[lib]`; deeply tied to internal `plib` libc wrapper. Best provenance, hardest vendor. CI: Ubuntu + macOS only (no Windows). |
+| `sed-uutils` | [`uutils/sed`](https://github.com/uutils/sed) | MIT | 2026-04-24 | v0.1.1 published on crates.io; standard `uumain` API; uucore 0.8.0 = zero skew with brush; claims Towers-of-Hanoi + arbitrary-precision math passing. **Direct crates.io dep, no vendoring.** |
+| `awk-rs` (`rawk` clone) | [`pegasusheavy/awk-rs`](https://github.com/pegasusheavy/awk-rs) (formerly `quinnjr/rawk`) | MIT OR Apache-2.0 | 2026-04-15 | v0.1.0 published on crates.io with **public `[lib]` API**; **CI matrix tests Windows + macOS + Linux**; 639 tests / 86% library coverage; Criterion benchmarks; minimal deps (`regex` + `thiserror`); claims 100% POSIX + gawk extensions. **Direct crates.io dep, no vendoring.** |
+| `fastgrep` | [`awnion/fastgrep`](https://github.com/awnion/fastgrep) | MIT OR Apache-2.0 | 2026-04-14 | v0.1.8 published on crates.io with **public `[lib]` API** (`pub mod {cli, output, pattern, searcher, threadpool, trigram, walker}`); upstream README declares "drop-in replacement for GNU grep"; bin target named `grep`; 10 integration test files; Criterion benchmarks measure **2–12× faster than GNU grep**; SIMD literal search via `memchr`, parallel by default, lazy trigram index. **Single-contributor upstream.** **CI tests Ubuntu + macOS only — no Windows in upstream CI** (mitigation: brush-side Windows smoke gate before ship). MSRV 1.92 (2024 edition). |
+| `diffutils` | [`uutils/diffutils`](https://github.com/uutils/diffutils) | MIT/Apache-2.0 | 2026-04-21 | v0.5.0; `pub mod cmp;` exposed but `pub mod diff;` still missing — same blocker as documented in [`coreutils-coverage-expansion.md`](./coreutils-coverage-expansion.md) Cycle 3. No change. |
+| `posix-tools-for-windows` | [`fukuyori/posix-tools-for-windows`](https://github.com/fukuyori/posix-tools-for-windows) | MIT | 2026-03-27 | 37 self-contained Rust crates; **Windows-targeted by design** (internal glob, Shift_JIS/EUC-JP, case-insensitive paths). Single author, 2 commits, no CI, Japanese-only docs. `grep/Cargo.toml` lists `authors = ["Claude"]` → LLM-assisted. **Used only for `grep` in the current plan** (awk-rs supersedes posix-tools-for-windows for awk). |
+| `rustix` | [`bytecodealliance/rustix`](https://github.com/bytecodealliance/rustix) | Apache-2.0+LLVM / MIT | 2026-04-17 | POSIX syscall library, not a utility source. Excludes Windows except for Winsock; not a `nix` drop-in for brush; no help with Windows job control. **Out of scope for this plan.** |
+
+### Scorecard against selection criteria
+
+| Source / utility | POSIX compat | Maintenance | Performance | Cross-platform | License | Lib API |
+|---|---|---|---|---|---|---|
+| `uutils/sed` (sed) | ✅ Towers-of-Hanoi, arbitrary-precision math test scripts | ✅ active, dependabot, recent commits | ⚠️ no published benchmark, but pre-feature-complete (v0.1.1) | ✅ uucore-shape; uutils' standard cross-platform conventions | ✅ MIT | ✅ `uumain(args)` exposed |
+| `pegasusheavy/awk-rs` (awk) | ✅ 100% POSIX claim; 34 gawk-compat tests; 412 e2e | ⚠️ 2 contributors (1 human + dependabot); CI green; v0.1.0 fresh | ✅ Criterion benches; ~80ms vs gawk ~50ms (1.6×, acceptable) | ✅ **CI matrix tests Windows-latest** | ✅ MIT OR Apache-2.0 | ✅ `pub mod {ast,error,interpreter,lexer,parser,value}`; re-exports `Lexer`/`Parser`/`Interpreter` |
+| `awnion/fastgrep` (grep) | ✅ "drop-in replacement for GNU grep" per upstream; [`GNU_GREP_COMPAT.md`](https://github.com/awnion/fastgrep/blob/main/GNU_GREP_COMPAT.md) catalogs only ~10 unsupported flags (`-G`, `-P`, `-z`, `--line-buffered`, `-R`, `-d`, `-D`, `--binary-files`, `-NUM`); 10 integration-test files | ✅ Active single-author maintenance (regular Jan/Feb/Mar/Apr 2026 commits); 5 CI workflows; CHANGELOG; ARCHITECTURE doc | ✅ Criterion benches show **2–12× faster** than GNU grep on hot paths (sparse-literal `-rn`: 4.4×, dense `-rc`: 12×, regex `-rn`: 9.4×) | ⚠️ **Ubuntu + macOS in CI only — no Windows.** Brush-side Windows smoke gate required before ship. | ✅ MIT OR Apache-2.0 | ✅ `pub mod {cli, output, pattern, searcher, threadpool, trigram, walker}`; bin target named `grep` |
+| `posix-tools-for-windows` (grep, fallback only) | ⚠️ ad-hoc; no comparative test suite | ❌ single author, 2 commits, no CI, LLM-assisted | ⚠️ no benchmark | ✅ Windows-by-design | ✅ MIT | ❌ bin-only; vendor required |
+| `posixutils-rs` (m4/bc/make/patch) | ✅ POSIX-spec-driven; Stage 3 test coverage | ✅ active, multi-contributor, MIT | ⚠️ no benchmark | ❌ Ubuntu + macOS CI only; tied to `plib` libc wrapper | ✅ MIT | ❌ bin-only; vendor fan-out via `plib` |
+
+### Hard rejections from the criteria
+
+- **`posix-tools-for-windows` for `awk`** — rejected because `pegasusheavy/awk-rs` outscores it on every axis (lib API, CI Windows coverage, test count, license breadth, contributor isolation risk). The earlier first-pass plan (Cycle 0c "vendor awk from posix-tools-for-windows") is **withdrawn**; replaced by Cycle 0c-revised (clean crates.io dep on `awk-rs = "0.1.0"`).
+- **`posix-tools-for-windows` for `grep` (primary)** — demoted from primary to **fallback** because `awnion/fastgrep` v0.1.8 outscores it on POSIX/GNU compat (drop-in claim, only ~10 unimplemented GNU flags catalogued in [`GNU_GREP_COMPAT.md`](https://github.com/awnion/fastgrep/blob/main/GNU_GREP_COMPAT.md)), maintenance signal, performance (Criterion benches showing 2–12× over GNU grep), and license breadth. posix-tools-for-windows-grep stays as a **fallback** only if Cycle 0b's brush-side Windows smoke gate fails on fastgrep. The second-pass plan (Cycle 0b "vendor grep from posix-tools-for-windows") is **withdrawn**; replaced by Cycle 0b-revised (clean crates.io dep on `fastgrep = "0.1.8"`).
+- **`posixutils-rs` for `sed`/`awk`/`grep`** — rejected because the `plib` internal dependency makes vendoring fan out, and the upstream is bin-only. Stays the path for `m4`/`bc`/`make`/`patch` only because no alternative exists.
+- **`rustix` everywhere** — rejected because it's not a utility source; out of scope.
+
+### Per-utility decision matrix (post-sweep)
+
+| Utility | Recommendation | Source | Effort | Risk |
+|---|---|---|---|---|
+| `sed` | **Cycle 0a**: real crates.io dep on `uutils/sed = "0.1.1"` | uutils/sed | ~30 min adapter | Low — pre-feature-complete; track for 0.2.0+ |
+| `awk` | **Cycle 0c-revised**: real crates.io dep on `awk-rs = "0.1.0"`. Clean lib API; **CI tests Windows**; 639 tests; Criterion benches; benchmarked at 1.6× gawk on 100k-line sum. | pegasusheavy/awk-rs | ~1 hour adapter (lib API requires a thin wrapper that mimics the upstream `main.rs` arg-parsing — slightly thicker than `sed`'s `uumain` because awk-rs's API is `Lexer`/`Parser`/`Interpreter` not a single entrypoint) | Low — well-tested upstream with Windows CI |
+| `cmp` | **Cycle 0**: real crates.io dep on `diffutils = "0.5.0"` (already known per coverage-expansion) | uutils/diffutils | ~30 min adapter | Low |
+| `diff` | Still **deferred** until upstream exposes `pub mod diff;` (1-line PR is the unblock) | uutils/diffutils | (blocked) | — |
+| `grep` | **Cycle 0b-revised**: real crates.io dep on `fastgrep = "0.1.8"`. Bin target named `grep`; brush registers both `grep` and `fastgrep` aliases pointing at the same adapter (matching upstream's "installed binary is called `grep`" intent). 2–12× faster than GNU grep per upstream Criterion. **Gated** on a brush-side Windows smoke test before merge — upstream CI doesn't cover Windows. | awnion/fastgrep | ~1 hour adapter + 0.5 day Windows smoke gate | Low-Medium — fastgrep is well-tested upstream, but Windows-buildability is unverified; plan budgets a smoke gate to confirm. |
+| `grep` (fallback) | **Cycle 0b-fallback**, used only if Cycle 0b-revised's Windows smoke gate fails: vendor `grep/src/main.rs` (~1,503 lines) from posix-tools-for-windows into `brush-bundled-extras/src/posixtools/grep.rs`. License-compatible (MIT). | posix-tools-for-windows | 0.5–1 day incl. audit | Medium — LLM-authored, sparse tests; only invoked if fastgrep doesn't build/run on Windows. |
+| `m4` / `bc` / `make` / `patch` | **Defer.** posixutils-rs versions are tied to internal `plib` (Unix libc wrapper); vendoring fan-out exceeds 2 days each. Original Cycle 1 upstream-engagement plan still the right shape if user demand materializes. | posixutils-rs | 2–4 days each | Medium-High — Unix-leaning; some Windows-incompat hazards (ioctl, signals) |
+
+### Why the §6a "no vendoring" stance is softened (not abandoned)
+
+The original §6a rejected vendoring on the grounds that it "must not
+become the default escape hatch". That reasoning still holds **for
+posixutils-rs's gap-filler crates** because their vendoring fan-out is
+real (each utility imports `plib::*` which wraps libc; vendoring cleanly
+means vendoring `plib` too, plus 23 sibling utilities' shared modules in
+`text/`).
+
+`posix-tools-for-windows` has the *opposite* shape: each utility is its
+own self-contained crate with no `crate::*` cross-dependencies and no
+internal shared library. Its `awk` crate has 8 files all in
+`awk/src/`; `grep` and `sed` are single files. Vendoring one crate is a
+copy-paste, not a maintenance treadmill.
+
+The `posix-tools-for-windows` provenance concerns are real and recorded
+explicitly:
+
+1. **Single author, 2 commits.** No upstream community to push fixes
+   back to. If we vendor, we own the maintenance forever — but that's
+   true of any vendored code.
+2. **LLM-assisted authorship.** The `grep/Cargo.toml` literally lists
+   `authors = ["Claude"]`. Code looks plausible on inspection but
+   has not been audited for correctness against a reference test
+   suite. **Pre-vendor audit is mandatory** — at minimum: read the
+   regex / address-range / hold-space code paths in sed; the lexer +
+   parser + interpreter wiring in awk; the `--include`/`--exclude` +
+   recursion logic in grep. Pair this with a brush-side smoke-test
+   suite running real-world scripts (a small subset of GNU sed's test
+   suite, AWK book exercises, common grep flag combinations).
+3. **Japanese-only docs.** Not a blocker, but inline comments are in
+   Japanese and would benefit from English translation in the brush-
+   side fork. Optional, not on the critical path.
+4. **Sparse tests.** sed claims "54 unit + 10 CLI integration"; awk
+   has stress tests; grep has glob/path tests. Brush-side test
+   coverage extension is part of the audit budget above.
+
+These concerns make Cycle 0b/0c **medium-risk**, not low-risk. The
+budget is sized accordingly (1–2 days per vendored utility, dominated
+by audit + integration tests, not the copy-paste itself).
+
+### Cycle 0 — Quick wins (no vendoring required)
+
+This sub-cycle ships **before** Cycles 0b/0c (vendoring) and **before**
+Cycles 1–3 of the original upstream-engagement plan. Both are clean
+crates.io deps that plug directly into the existing
+`brush-bundled-extras` adapter pattern.
+
+**Cycle 0a — `sed` via uutils/sed crates.io dep**:
+
+```toml
+# brush-bundled-extras/Cargo.toml
+sed = { version = "0.1.1", optional = true }
+
+[features]
+'extras.sed' = ["dep:sed"]
+'extras.uutils-sed-all' = ['extras.sed']
+```
+
+```rust
+// brush-bundled-extras/src/lib.rs
+#[cfg(feature = "extras.sed")]
+fn sed_adapter(args: Vec<OsString>) -> i32 {
+    sed::sed::uumain(args.into_iter())
+}
+```
+
+```toml
+# brush-shell/Cargo.toml
+experimental-bundled-extras-uutils-sed = [
+    "dep:brush-bundled-extras",
+    "brush-bundled-extras/extras.uutils-sed-all",
+]
+```
+
+DoD: `brush -c 'echo hello | sed s/h/H/'` produces `Hello`.
+
+**Cycle 0b-revised — `grep` via crates.io dep on `awnion/fastgrep`**
+
+`fastgrep` v0.1.8 is published on crates.io with a public `[lib]` API
+and a bin target literally named `grep`. The upstream README states
+"The installed binary is called `grep`" — meaning the upstream's own
+intent matches brush's "register as both `grep` and `fastgrep`" goal.
+Performance is 2–12× faster than GNU grep on hot paths per upstream
+Criterion benchmarks; AI-agent-friendly defaults (file size limit,
+line truncation, JSON output) align with brush's primary use case
+(Claude Code's Bash tool).
+
+The library exposes building blocks rather than a single `run(args)`
+function, so the brush-side adapter mirrors fastgrep's `src/bin/grep.rs`
+orchestration (~400 lines of glue around `Cli::parse`,
+`CompiledPattern::compile`, `walk`, `ThreadPool`, `search_file_streaming`,
+trigram index load/save, etc.). This is more adapter code than
+`uutils/sed`'s `uumain` shape, but still no vendoring.
+
+```toml
+# brush-bundled-extras/Cargo.toml
+fastgrep = { version = "0.1.8", optional = true }
+
+[features]
+'extras.grep' = ["dep:fastgrep"]
+'extras.fastgrep-all' = ['extras.grep']
+```
+
+```rust
+// brush-bundled-extras/src/grep_adapter.rs
+#[cfg(feature = "extras.grep")]
+pub fn grep_adapter(args: Vec<OsString>) -> i32 {
+    use clap::Parser;
+    use fastgrep::cli::Cli;
+    // Mirror fastgrep/src/bin/grep.rs::main() — config resolve,
+    // pattern compile, dispatch to single-file / stdin / files path.
+    // Pure glue, no behavioral overrides.
+}
+```
+
+**Dual-name registration** (matches upstream README intent):
+
+```rust
+// brush-bundled-extras/src/lib.rs::bundled_commands()
+#[cfg(feature = "extras.grep")]
+{
+    map.insert("grep".into(), grep_adapter);
+    map.insert("fastgrep".into(), grep_adapter);  // alias per user request + upstream README
+}
+```
+
+Both names dispatch to the same adapter. Native shell `grep` (none
+exists in `brush-builtins/`) and PATH `grep` are shadowed by the
+bundled version when `extras.grep` is enabled; users on Windows who
+install the fork over Git Bash get the fast version by default.
+
+**MANDATORY pre-merge gates** (logged in CHANGELOG before flag is enabled):
+
+1. **Windows-build smoke gate** — fastgrep's CI matrix is
+   `[ubuntu-latest, macos-latest]` only; Windows is unverified.
+   Verify on a Windows runner:
+   - [ ] `cargo build -p brush-shell --features experimental-bundled-extras-fastgrep` exits 0.
+   - [ ] `brush -c "grep --version"` runs and prints fastgrep banner.
+   - [ ] `brush -c "grep -rn 'fn main' src"` produces output and exit 0
+         on a tree with matches; exit 1 on a tree without.
+   - [ ] `brush -c "echo hello | grep h"` (stdin path) produces output
+         and exit 0.
+   - [ ] Trigram cache directory resolves correctly on Windows
+         (probably `C:\Users\<user>\AppData\Local\fastgrep\trigram`
+         via the `dirs` crate; verify it's writable and not aborting
+         the binary if it fails).
+   - [ ] Memory-mapped file reads via `memmap2` work on Windows path
+         names with backslashes and case-insensitive volumes.
+   - [ ] EPIPE behavior under `grep -rn 'pat' . | head -n 5` —
+         findutils' EPIPE panic on Windows is a known issue in this
+         family; verify fastgrep handles it cleanly. If it doesn't,
+         file an upstream issue and decide whether to ship anyway with
+         the limitation documented (matches brush's existing findutils
+         caveat).
+
+   If any of these fail and can't be patched cheaply (a few-line
+   upstream PR, gated `cfg(windows)` adjustment, etc.): **abort
+   Cycle 0b-revised, fall through to Cycle 0b-fallback** (vendor
+   from posix-tools-for-windows). The fallback is **explicitly
+   designed to be invoked only on smoke-gate failure** — the user-
+   visible outcome (working `grep`) is the same; the implementation
+   path is just less preferred.
+
+2. **GNU compat audit** — read [`GNU_GREP_COMPAT.md`](https://github.com/awnion/fastgrep/blob/main/GNU_GREP_COMPAT.md)
+   and confirm the unsupported flags don't matter for brush's
+   target audience. Currently catalogued unsupported: `-G`/`-P`/`-z`,
+   `--line-buffered`, `-R`/`-d`/`-D`, `--binary-files`, `-NUM`. Most
+   common interactive flags (`-rn`, `-i`, `-c`, `-l`, `-F`, `-E`,
+   `-A`/`-B`/`-C`, `-o`, `--include`/`--exclude`, color) are
+   supported.
+
+3. **Behavioral-deviation note in CHANGELOG** — fastgrep has three
+   intentional deviations from GNU grep that users should know about
+   *before* they're surprised:
+   - **Default 100 MiB file size limit** (override:
+     `FASTGREP_NO_LIMIT=1` or `--max-file-size=<BYTES>`).
+   - **Default 15000-byte line truncation** (override:
+     `--max-line-len=0`).
+   - **Output order non-deterministic** (parallel by default; force
+     single-threaded with `-j1`).
+   These are AI-agent-friendly defaults but may surprise users
+   coming from GNU grep. Brush takes them as-is — overriding upstream
+   defaults is out of scope.
+
+**Cycle 0c-revised — `awk` via crates.io dep on `awk-rs`**
+
+`pegasusheavy/awk-rs` v0.1.0 is published on crates.io and exposes a
+clean `[lib]` API with `pub mod {ast, error, interpreter, lexer,
+parser, value}` and re-exports `Lexer`, `Parser`, `Interpreter`,
+`Value`. Its CI matrix tests **Windows + macOS + Linux**, it ships
+639 tests at 86% library coverage, and Criterion benchmarks document
+performance within 1.6× of gawk on a 100k-line sum.
+
+The upstream `main.rs` shows the canonical CLI driver — about 150
+lines that parse `-f`/`-F`/`-v`/`--posix`/`--traditional` flags,
+construct an `Interpreter`, and call `interpreter.run(inputs,
+&mut output)`. The brush-side adapter mirrors that shape:
+
+```toml
+# brush-bundled-extras/Cargo.toml
+awk-rs = { version = "0.1.0", optional = true }
+
+[features]
+'extras.awk' = ["dep:awk-rs"]
+'extras.awk-rs-all' = ['extras.awk']
+```
+
+```rust
+// brush-bundled-extras/src/awk_adapter.rs
+#[cfg(feature = "extras.awk")]
+pub fn awk_adapter(args: Vec<OsString>) -> i32 {
+    use awk_rs::{Interpreter, Lexer, Parser};
+    use std::io::{self, BufReader};
+
+    // CLI parsing modeled on awk-rs/src/main.rs::run().
+    // ~50 lines — no logic change vs upstream, just adapted to
+    // brush's BundledFn signature.
+    // ...
+}
+```
+
+DoD:
+- `brush -c "echo 'a b c' | awk '{print $2}'"` → `b`
+- `brush -c "awk 'BEGIN{for(i=1;i<=10;i++) sum+=i; print sum}'"` → `55`
+- Mixed pipeline: `brush -c "find . -name '*.rs' | xargs awk '{print FILENAME, NR}'"` works.
+- Verify upstream MSRV `1.85` (2024 edition) is compatible with
+  brush's MSRV. If not, hold for a later awk-rs version that
+  loosens MSRV, or fall back to vendoring the relevant interpreter
+  modules with a brush-side back-port.
+
+Risk profile: **Low.** Unlike the original Cycle 0c (vendor from
+posix-tools-for-windows), this path has:
+- Real upstream maintenance (CI, dependabot, security policy).
+- Test coverage we can rely on rather than recreate.
+- Cross-platform CI we don't have to verify ourselves.
+- Clean upgrade path (`cargo update`) when awk-rs ships fixes.
+
+The upstream is still single-author + dependabot, so it's not
+risk-free — but the audit + test-extension budget that the original
+Cycle 0c demanded is largely obviated by upstream's existing
+infrastructure.
+
+### Updated bundle layout
+
+The proposed `extras.posixutils-all` aggregate is renamed to
+`extras.posixtools-all` to reflect that the source is now multi-upstream
+(posix-tools-for-windows for awk/grep; uutils for sed/cmp; posixutils-rs
+deferred for m4/bc/make/patch):
+
+```toml
+# brush-bundled-extras/Cargo.toml — proposed additions
+
+[dependencies]
+sed      = { version = "0.1.1", optional = true }  # Cycle 0a         — clean dep (uutils/sed)
+fastgrep = { version = "0.1.8", optional = true }  # Cycle 0b-revised — clean dep (awnion/fastgrep)
+awk-rs   = { version = "0.1.0", optional = true }  # Cycle 0c-revised — clean dep (pegasusheavy/awk-rs)
+
+# (no Cargo deps for vendored utilities — `extras.posixtools-all`
+# would only contain code if Cycle 0b-fallback were invoked.)
+
+[features]
+# Per-utility features (opt-in individually).
+'extras.sed'  = ["dep:sed"]
+'extras.grep' = ["dep:fastgrep"]
+'extras.awk'  = ["dep:awk-rs"]
+
+# Source-grouped aggregates.
+'extras.uutils-sed-all' = ['extras.sed']
+'extras.fastgrep-all'   = ['extras.grep']  # registers `grep` + `fastgrep` aliases
+'extras.awk-rs-all'     = ['extras.awk']
+'extras.posixtools-all' = []               # reserved; only populated if 0b-fallback fires
+
+# Top-level aggregate now layers in everything available today.
+'extras.all' = [
+    'extras.findutils-all',
+    'extras.uutils-sed-all',
+    'extras.fastgrep-all',
+    'extras.awk-rs-all',
+]
+```
+
+```toml
+# brush-shell/Cargo.toml — proposed additions
+
+experimental-bundled-extras-uutils-sed = [
+    "dep:brush-bundled-extras",
+    "brush-bundled-extras/extras.uutils-sed-all",
+]
+experimental-bundled-extras-fastgrep = [
+    "dep:brush-bundled-extras",
+    "brush-bundled-extras/extras.fastgrep-all",
+]
+experimental-bundled-extras-awk-rs = [
+    "dep:brush-bundled-extras",
+    "brush-bundled-extras/extras.awk-rs-all",
+]
+experimental-bundled-extras-posixtools = [
+    "dep:brush-bundled-extras",
+    "brush-bundled-extras/extras.posixtools-all",
+]
+```
+
+The original `extras.posixutils-all` slot stays reserved for any future
+posixutils-rs integration (m4/bc/make/patch) once Cycle 1 upstream
+engagement lands. Multiple parallel namespaces (`uutils-sed`,
+`fastgrep`, `awk-rs`, `posixtools`, `posixutils-all`) because the
+upstreams have different ship cadences, different audit profiles, and
+different risk levels — collapsing them into one would lose the
+per-utility provenance signal.
+
+### What this changes vs. the original cycle plan
+
+| Original cycle | Status after sweep |
+|---|---|
+| Cycle 1 (file upstream issue at posixutils-rs) | **Still applicable for `m4` / `bc` / `make` / `patch`.** No longer the path for `sed` / `awk` / `grep`. |
+| Cycle 2 (prototype with m4 or bc) | **Deferred** until the gap-filler set narrows enough to justify. With Cycle 0 closing the user-cited gap (sed/awk/grep), m4/bc/make/patch are now niche-audience asks. Re-open if user demand materializes. |
+| Cycle 3 (selective integration of all 6 from posixutils-rs) | **Replaced** by Cycles 0a/0b/0c for sed/awk/grep. m4/bc/make/patch slots remain reserved here. |
+
+90-day abort condition on the original Cycle 1 still applies — but the
+reduced scope (only m4/bc/make/patch, all niche) makes it easier to let
+that abort land cleanly without user-facing impact.
+
+---
 
 ## Bundle answer (the user's direct question)
 
@@ -750,3 +1178,6 @@ For Cycle 3:
 |---|---|---|---|
 | 2026-04-25 | (planning, draft) | Plan drafted via PDCA. posixutils-rs verified rich (109 utilities at Stage 3) but **integration-blocked**: gap-filler crates `text/` (grep, sed) and `awk/` are binary-only with no `[lib]`; not on crates.io. Bundle slot reserved at `experimental-bundled-extras-posixutils` under existing `brush-bundled-extras` mega-crate (consistent with coverage-expansion Cycle 2's "one mega-crate for non-coreutils" decision). Cycles 1–3 structured as upstream-engagement → prototype → selective integration. Selective scope: `awk`, `grep`, `sed`, `make`, `m4`, `bc`; vi/cron/cc/etc. excluded. | Raw `Cargo.toml` fetches for `text/`, `awk/`, `process/` (process/ has `[lib]`; others don't); crates.io 404 for `posixutils-awk`; posixutils-rs README maturity table; no relevant open upstream issues as of 2026-04-25. |
 | 2026-04-25 | (planning, reflexion) | Reflexion review scored draft 3.50/5.0, below 4.0 threshold. Amendments: (1) Verified `m4/`, `make/`, `calc/` Cargo.toml — all binary-only, no `[lib]`. Updated §2b table to remove ❓ entries; blockage now confirmed *uniform* across all five gap-filler crates, not heterogeneous. (2) Added §6 "Alternatives considered" enumerating vendoring (rejected on consume-as-published discipline), binary-embedding (rejected on bloat), brush-side fork maintenance (rejected on cargo-on-crates.io constraint + ongoing-maintenance cost). (3) Added Cycle 1 "Abort condition (time-bound)" — 90-day budget from issue filing; if no upstream traction in that window, plan stalls and coverage-expansion Cycle 5's defer conclusion remains active. (4) Cycle 2 prototype rationale made explicit: prototype with `m4`/`bc` (small surface area) validates the *adapter pattern* without confounding from `awk`/`grep`/`sed` utility-semantics complexity; pattern is invariant under utility complexity. (5) Cycle 2 dependency strategy spelled out: `git`-URL on a brush-side `proto/` branch (never `main`), explicitly NOT a long-running fork, discarded after prototype validation. | Reflexion report 2026-04-25; this doc post-amendment. |
+| 2026-04-25 (late evening) | (planning, third-pass sweep — fastgrep) | User cloned [`awnion/fastgrep`](https://github.com/awnion/fastgrep) at `C:\Tools\brush-shell-resources\fastgrep` and proposed using it as the brush-side `grep` (registered as both `grep` and `fastgrep`, matching upstream README's "installed binary is called `grep`" intent). Audit against the selection criteria: (1) **POSIX/GNU compat** ✅ — upstream README declares "drop-in replacement for GNU grep"; [`GNU_GREP_COMPAT.md`](https://github.com/awnion/fastgrep/blob/main/GNU_GREP_COMPAT.md) catalogues only ~10 unsupported flags (`-G`/`-P`/`-z`/`--line-buffered`/`-R`/`-d`/`-D`/`--binary-files`/`-NUM`); 10 integration-test files comparing against GNU grep behavior. (2) **Maintenance** ✅ — active single-author commit cadence (Jan/Feb/Mar/Apr 2026); 5 CI workflows (build, lint, test, ci, release); CHANGELOG; ARCHITECTURE.md; AI_AGENT_GREP_USECASES.md; ENVIRONMENT.md. (3) **Performance** ✅ — Criterion benches: **2–12× faster than GNU grep** on hot paths (sparse-literal `-rn` 4.4×, dense `-rc` 12×, regex `-rn` 9.4×); SIMD via `memchr`, parallel by default, lazy trigram index. (4) **Cross-platform** ⚠️ — **CI matrix is `[ubuntu-latest, macos-latest]` only — no Windows.** Mitigation: brush-side Windows smoke gate before merge (build + run grep with `-rn`/stdin/EPIPE checks; verify trigram cache dir resolution via `dirs` crate; verify `memmap2` reads on Windows path semantics). If smoke gate fails, fall back to vendoring grep from posix-tools-for-windows (Cycle 0b-fallback). (5) **License** ✅ — MIT OR Apache-2.0. (6) **Lib API** ✅ — `pub mod {cli, output, pattern, searcher, threadpool, trigram, walker}`; bin target literally named `grep`. **Decision: Cycle 0b is reframed as Cycle 0b-revised (clean crates.io dep on `fastgrep = "0.1.8"`); the prior Cycle 0b (vendor from posix-tools-for-windows) is withdrawn but kept as Cycle 0b-fallback explicitly conditioned on the Windows smoke gate failing.** Both `grep` and `fastgrep` aliases registered in `bundled_commands()` per user request + upstream intent. Three intentional behavioral deviations from GNU grep recorded for CHANGELOG: 100 MiB default file-size limit (override `FASTGREP_NO_LIMIT=1` or `--max-file-size`), 15000-byte default line truncation (override `--max-line-len=0`), non-deterministic output order (parallel; force serial with `-j1`). MSRV 1.92 (2024 edition) — verify against brush MSRV alongside the awk-rs MSRV check. | New `fastgrep` row in §"Sources surveyed", §"Scorecard", §"Hard rejections" (with posix-tools-for-windows-grep demoted to fallback). Cycle 0b reframed; Cycle 0b-fallback added. Bundle layout updated with `fastgrep` dep and `extras.fastgrep-all` aggregate. Code reviewed: `C:\Tools\brush-shell-resources\fastgrep\{Cargo.toml,README.md,GNU_GREP_COMPAT.md,src/lib.rs,src/bin/grep.rs,.github/workflows/_test.yml}`. |
+| 2026-04-25 (evening) | (planning, second-pass sweep + criteria formalization) | User raised the question: does the plan check that candidates *match Linux built-ins properly* and are *professional/fast/efficient/cross-platform*? Two follow-ups: (1) New section "Selection criteria for any candidate source" added before the per-utility table, formalizing six axes — POSIX/Linux compat, maintenance signal, performance, cross-platform, license, lib API. Each candidate now scored against these axes in a "Scorecard" table; "Hard rejections" subsection records what fails which axis (posix-tools-for-windows for awk; posixutils-rs for sed/grep/awk; rustix for everything). (2) Second-pass sweep discovered [`pegasusheavy/awk-rs`](https://github.com/pegasusheavy/awk-rs) (cloned as `rawk`, formerly `quinnjr/rawk`) — v0.1.0 published on crates.io with public `[lib]` API (`pub mod {ast,error,interpreter,lexer,parser,value}`; re-exports `Lexer`/`Parser`/`Interpreter`/`Value`), dual MIT OR Apache-2.0, **CI matrix tests Windows + macOS + Linux**, 639 tests / 86% library coverage, Criterion benchmarks documenting 1.6× gawk on a 100k-line sum, minimal deps (`regex` + `thiserror`). This source outscores posix-tools-for-windows on every axis. **First-pass Cycle 0c (vendor awk from posix-tools-for-windows) is withdrawn.** Replaced by Cycle 0c-revised: clean crates.io dep on `awk-rs = "0.1.0"`. Adapter is ~50 lines mirroring upstream's `main.rs` arg parsing — slightly thicker than `sed`'s `uumain` because awk-rs's API is `Lexer`/`Parser`/`Interpreter` rather than a single dispatcher, but still no vendoring. posix-tools-for-windows is downgraded to **grep-only**, and even that is now flagged for "consider deferring until a stronger candidate surfaces" — its low scores on maintenance/POSIX-compat axes make it the highest-risk source in the plan. MSRV check is the one remaining gate (`awk-rs` requires Rust 1.85 / 2024 edition; brush MSRV needs to be verified). | New "Selection criteria" + "Scorecard" + "Hard rejections" subsections in §"Alternative sources reviewed". Revised Cycle 0c. Bundle layout updated with `awk-rs` dep and `extras.awk-rs-all` aggregate. Code reviewed: `C:\Tools\brush-shell-resources\rawk\{Cargo.toml,src/lib.rs,src/main.rs,README.md,BENCHMARK.md,TODO.md,.github/workflows/*.yml}`. |
+| 2026-04-25 (afternoon) | (planning, alternative-source sweep) | Sweep of cloned upstream sources at `C:\Tools\brush-shell-resources\` evaluated five candidate repos: `posixutils-rs` (rustcoreutils), `sed-uutils` (uutils/sed v0.1.1), `diffutils` (uutils/diffutils v0.5.0), `posix-tools-for-windows` (fukuyori), and `rustix` (Bytecode Alliance). Findings drove a pivot for sed/awk/grep specifically, while leaving the original posixutils-rs plan intact for m4/bc/make/patch. Per-utility verdicts: (1) **`sed`** — drop deferral. `uutils/sed = "0.1.1"` is published with standard `uumain` API and uucore 0.8.0 pin matching ours; ship as a clean crates.io dep in Cycle 0a. (2) **`awk`** + **`grep`** — `posix-tools-for-windows` ships functional self-contained Rust ports (awk: 6,112 lines / 8 files; grep: 1,503 lines / 1 file), MIT, Windows-targeted by design (internal glob, encoding, case-insensitive paths). Vendor in Cycles 0b/0c. Provenance concerns documented: single author, 2 commits, no CI, Japanese-only docs, `grep/Cargo.toml` lists `authors = ["Claude"]` → LLM-assisted; **per-utility audit + brush-side test-extension is mandatory** (1–2 days each, not a copy-paste). (3) **`m4` / `bc` / `make` / `patch`** — stay on the original posixutils-rs upstream-engagement track; their internal `plib` dependency makes vendoring fan out. (4) **`diff`** — `uutils/diffutils` v0.5.0 still missing `pub mod diff;` (no change). (5) **`rustix`** — out of scope (POSIX syscall lib, not a utility source; no Windows job-control coverage). The §6a stance ("vendoring must not become the default escape hatch") is **softened, not abandoned**: vendoring is now acceptable for sources whose code is *self-contained* (no internal-library fan-out); posixutils-rs's plib-bound crates remain rejected. Two parallel feature namespaces — `extras.uutils-sed-all` (clean dep) and `extras.posixtools-all` (vendored) — preserve per-utility provenance instead of collapsing into one. | New §"Alternative sources reviewed — 2026-04-25" in this doc. Code reviewed: `C:\Tools\brush-shell-resources\posix-tools-for-windows\{sed,grep,awk}\src\*.rs`, `\sed-uutils\Cargo.toml` + `src/lib.rs`, `\diffutils\src\lib.rs`. |
