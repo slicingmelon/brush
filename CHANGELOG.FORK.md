@@ -7,6 +7,135 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 
 ### ✨ Features
 
+#### `feat(extras): bundle find / xargs from uutils/findutils via adapter wrapper`
+
+Cycle 2 of [`docs/planning/coreutils-coverage-expansion.md`](./docs/planning/coreutils-coverage-expansion.md).
+Closes the gap between brush's bundled coreutils set and the next-most-asked-for
+utilities: `find` and `xargs` from
+[`uutils/findutils@0.8.0`](https://github.com/uutils/findutils/tree/0.8.0).
+
+**New crate**: `brush-bundled-extras`. Houses adapter wrappers for every
+non-uutils-coreutils utility we ship. Pairs with the existing layout:
+
+```text
+brush-builtins                — native shell builtins (cd, eval, trap, ...)
+brush-experimental-builtins   — experimental natives (save)
+brush-coreutils-builtins      — direct uutils-coreutils bundling
+brush-bundled-extras          — adapter-wrapped non-coreutils utilities  ← NEW
+```
+
+The new crate exists because findutils' API does **not** match uutils-coreutils'
+`uumain` shape:
+
+```rust
+// uutils/coreutils — what brush-coreutils-builtins ships:
+uumain(args: impl Iterator<Item = OsString>) -> i32
+
+// uutils/findutils — what we have to adapt:
+findutils::find::find_main(args: &[&str], deps: &StandardDependencies) -> i32
+findutils::xargs::xargs_main(args: &[&str]) -> i32
+```
+
+Per-utility adapter functions in `brush-bundled-extras/src/lib.rs` translate:
+
+- argv `Vec<OsString>` → `Vec<String>` via `OsString::to_string_lossy()`,
+  then `&[&str]`. **Lossy on non-UTF-8 OS args** — invalid UTF-8 sequences
+  are replaced with U+FFFD. In practice rare for sane file names; if
+  lossless behavior is required, fall through to a system `find`/`xargs`
+  on PATH.
+- For `find`: construct `findutils::find::StandardDependencies::new()`
+  (real-IO/clock/fs implementation) and pass it through.
+
+**Why one crate for all non-coreutils extras**: the original plan called
+for one crate per upstream repo (`brush-findutils-builtins`,
+`brush-diffutils-builtins`, ...). Cycle 2 pre-flight invalidated that
+default. The plan's load-bearing argument for separate crates was
+"`uucore` version-skew tolerance", but version coexistence is a Cargo
+*dependency-graph* concern, not a *crate-layout* one — Cargo pulls both
+`uucore` versions whether the deps live in one crate or many. With
+that argument gone, separate-crate is just over-fragmentation. The
+mega-crate also future-fits ripgrep/sed/awk integration whose upstreams
+don't naturally fit a "per-uutils-source" pattern. See plan Decision Log
+2026-04-25.
+
+**uucore version skew**: `findutils 0.8.0` pins `uucore = "0.0.30"`;
+`brush-coreutils-builtins` pins `uucore = "0.8.0"`. Cargo resolves both,
+duplicating uucore-side code in the binary. Accepted cost — bounded; not
+a regression vs. shipping no `find` at all.
+
+**New feature flags on `brush-shell/Cargo.toml`** (opt-in, independent of
+the coreutils flags):
+
+- `experimental-bundled-extras` — top-level aggregate. Currently enables
+  findutils only (Cycle 2); future cycles add diffutils/procps and
+  potentially grep/sed/awk to this set.
+- `experimental-bundled-extras-findutils` — explicit findutils-only
+  opt-in.
+
+**Installing with find / xargs included**:
+
+```sh
+cargo install --locked --path brush-shell --force \
+  --features experimental-builtins,experimental-bundled-coreutils,experimental-bundled-extras
+```
+
+(Add `-coreutils-unix-extras` or `-coreutils-linux-extras` from Cycle 1
+on Unix/Linux for the broader utility set.)
+
+**Smoke-tested** on Windows (`cargo build -p brush-shell --features
+experimental-bundled-extras`, exit 0):
+
+```text
+$ ./target/debug/brush.exe -c 'type find; type xargs; find . -maxdepth 1 -name "*.toml"'
+find is a shell builtin
+xargs is a shell builtin
+.\Cargo.toml
+.\cliff.toml
+.\clippy.toml
+.\deny.toml
+.\release-plz.toml
+.\rustfmt.toml
+
+$ ./target/debug/brush.exe -c \
+    'printf "%s\n" .\\Cargo.toml .\\cliff.toml | xargs -n1 cmd /c echo'
+.Cargo.toml
+.cliff.toml
+```
+
+**Known limitations** (upstream behavior, not adapter bugs):
+
+- **`xargs` cannot invoke shell builtins.** xargs spawns subprocesses via
+  the OS `fork`/`exec` (or `CreateProcess` on Windows), which doesn't see
+  brush's builtins. So `xargs echo` fails to find `echo` even though it's
+  a brush builtin — pass a real binary instead. Same applies to
+  `find -exec`. This is a hard limit of how `find`/`xargs` work, not
+  fork-able to fix in our adapter.
+- **`find` panics on broken pipe on Windows.** When a downstream stage
+  (e.g., `find | head`) closes early, findutils 0.8.0 panics in
+  `printer.rs:67` on a Windows EPIPE because it `unwrap()`s a
+  `Result::Err`. Same family of issue as the coreutils EPIPE noise on
+  Windows (no SIGPIPE → uutils' EPIPE handling is brittle on Windows).
+  Tracked separately; needs an upstream fix in findutils. Workaround:
+  on Windows, write find's output to a file and pipe the file, instead
+  of streaming through `head`.
+- **Argv lossiness on non-UTF-8 OS args.** Documented above; affects
+  paths with surrogate UCS-2 on Windows or arbitrary bytes on Unix.
+  Substituted with U+FFFD before reaching findutils. Use a system find
+  for fully lossless paths.
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — new crate; optional `findutils`
+  dep; per-utility features + aggregates.
+- `brush-bundled-extras/src/lib.rs` — `find_adapter`, `xargs_adapter`,
+  `bundled_commands()`.
+- `Cargo.toml` — workspace member registration.
+- `brush-shell/Cargo.toml` — `brush-bundled-extras` dep (optional);
+  `experimental-bundled-extras` and `-findutils` feature flags.
+- `brush-shell/src/bundled.rs` — `install_default_providers()` merges
+  `brush-bundled-extras::bundled_commands()` into the registry under
+  the new feature flags.
+
 #### `feat(coreutils): add 26 missing uutils/coreutils utilities + `[` alias`
 
 This is Cycle 1 of [`docs/planning/coreutils-coverage-expansion.md`](./docs/planning/coreutils-coverage-expansion.md).

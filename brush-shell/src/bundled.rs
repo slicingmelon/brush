@@ -70,12 +70,38 @@ pub fn install(commands: HashMap<String, BundledFn>) {
 /// Providers are controlled by Cargo features. Binaries should call this
 /// once, before [`maybe_dispatch`], so both the dispatch fast path and the
 /// shell's shim builtins see a populated registry.
+///
+/// Multi-provider merge order: coreutils first, then non-coreutils
+/// extras (findutils/diffutils/procps via `brush-bundled-extras`).
+/// `HashMap::extend` semantics mean a later insertion under the same name
+/// would overwrite an earlier one — currently no name overlap exists
+/// between `brush-coreutils-builtins` and `brush-bundled-extras`, so
+/// merge order has no observable effect today. If a future provider
+/// introduces a name collision, the resolution policy needs explicit
+/// documentation here.
 pub fn install_default_providers() {
     #[allow(unused_mut)]
     let mut commands: HashMap<String, BundledFn> = HashMap::new();
 
     #[cfg(feature = "experimental-bundled-coreutils")]
     commands.extend(brush_coreutils_builtins::bundled_commands());
+
+    #[cfg(any(
+        feature = "experimental-bundled-extras",
+        feature = "experimental-bundled-extras-findutils"
+    ))]
+    {
+        // `brush-bundled-extras` declares its own `BundledFn` type alias
+        // matching this crate's. They are nominally distinct types but
+        // identical structurally (`fn(Vec<OsString>) -> i32`); the
+        // explicit cast at insertion is to suppress Rust's nominal-type
+        // mismatch.
+        commands.extend(
+            brush_bundled_extras::bundled_commands()
+                .into_iter()
+                .map(|(k, f)| (k, f as BundledFn)),
+        );
+    }
 
     install(commands);
 }
