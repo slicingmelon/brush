@@ -13,6 +13,35 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 > | `brush-bundled-extras` | 0.1.0    | 0.1.2   | Cycle 0a — wire `uutils/sed = "0.1.1"` via `sed_adapter` (`extras.sed` / `extras.uutils-sed-all` features). Cycle 0c-revised — wire `pegasusheavy/awk-rs = "0.1.0"` via `awk_adapter` (`extras.awk` / `extras.awk-rs-all` features). Both per `posixutils-rs-integration.md`. |
 > | `brush-shell`          | 0.3.1    | 0.3.3   | New `experimental-bundled-extras-uutils-sed` (Cycle 0a) and `experimental-bundled-extras-awk-rs` (Cycle 0c-revised) feature flags; `bundled.rs` cfg-gate extended to merge the extras registry when only one of them is enabled. |
 
+### 📋 Process / Decisions
+
+#### `docs(planning): record Cycle 0b-revised gate outcome (Windows-build + MSRV both passed)`
+
+Cycle 0b-revised of [`docs/planning/posixutils-rs-integration.md`](./docs/planning/posixutils-rs-integration.md)
+prescribes two MANDATORY pre-merge gates before the production grep
+adapter can land:
+
+1. **MSRV gate** — fastgrep declares `rust-version = "1.92"` while
+   brush is at `1.88.0`. Plan offered four resolution options
+   (workspace MSRV bump, feature-conditional MSRV, upstream PR, or
+   fall-through to fallback).
+2. **Windows-build smoke gate** — fastgrep upstream CI is Ubuntu +
+   macOS only; Windows-buildability and Windows-correctness needed
+   independent verification before brush could ship a feature flag
+   that depends on the crate.
+
+**Outcome — both gates PASSED.** Decision: option (b)
+feature-conditional MSRV (workspace stays at 1.88.0; the new flag
+documents `rustc ≥ 1.92` as a per-flag requirement). `cargo install
+fastgrep --version 0.1.8` built cleanly on Windows 11 in 35s
+producing a working `grep.exe`. Runtime smoke checks (`--version`,
+`-rn`, stdin pipe, no-match exit code, EPIPE under `| head`, trigram
+cache directory creation) all behaved correctly. Cycle 0b-fallback
+(vendor from posix-tools-for-windows) is **not triggered** — the
+production adapter follows in the next commit on this branch.
+
+Full decision log entry in the planning doc.
+
 ### ✨ Features
 
 #### `feat(bundled): ship awk via pegasusheavy/awk-rs crates.io dep`
