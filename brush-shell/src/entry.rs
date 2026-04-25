@@ -67,6 +67,16 @@ impl CommandLineArgs {
             }
         }
 
+        // In bash, `-c` does NOT consume the very next argv element as its
+        // value; it consumes the *first non-option argument* as the command
+        // string. So `bash -c -l 'echo hi'` works: `-l` is a flag, and
+        // `'echo hi'` is the first non-option, which becomes the command.
+        // Clap's short-option parsing requires the value to be adjacent to the
+        // flag, so we rewrite the argv in advance: locate the pending `-c`
+        // group and, if the next token is another option, pull the first
+        // subsequent non-option argument into the slot right after `-c`.
+        Self::pull_c_value_adjacent(&mut args);
+
         let (mut this, script_args) = brush_core::builtins::try_parse_known::<Self>(args)?;
 
         // Collect any args from after `--` (handled by try_parse_known) into
@@ -114,6 +124,60 @@ impl CommandLineArgs {
                     )
             })
         })
+    }
+
+    /// Returns true if `arg` looks like an option flag (starts with `-` and is
+    /// not the bare `-` stdin sentinel). `--` is treated as a flag here so
+    /// callers can stop scanning at it.
+    fn looks_like_flag(arg: &str) -> bool {
+        arg.starts_with('-') && arg.len() > 1
+    }
+
+    /// Bash's `-c` consumes the first *non-option* argument as the command
+    /// string (per the bash manpage), but clap requires the value to be
+    /// adjacent to the short flag. Rewrite the argv so they line up: if the
+    /// token after a pending-`c` flag group is itself another option, find the
+    /// first non-option argument later in the list (stopping at `--`) and
+    /// move it into the slot immediately after the flag.
+    ///
+    /// Examples:
+    ///   `-c -l 'echo hi'`       → `-c 'echo hi' -l`
+    ///   `-c -l 'echo' a b`      → `-c 'echo' -l a b`
+    ///   `-ec -l 'echo'`         → `-ec 'echo' -l`
+    ///   `-c 'echo' ...`         → unchanged (already adjacent)
+    ///   `-c -l --foo`           → unchanged (no non-option to pull)
+    fn pull_c_value_adjacent(args: &mut Vec<String>) {
+        let Some(flag_idx) = args.iter().position(|a| Self::has_pending_c_flag(a)) else {
+            return;
+        };
+
+        // If `-c` is the last token, nothing to do — clap will produce its
+        // usual "value required" error.
+        let value_slot = flag_idx + 1;
+        if value_slot >= args.len() {
+            return;
+        }
+
+        // If the slot already holds a non-option token, it's the command —
+        // leave it alone. This preserves existing adjacent-form behavior.
+        if !Self::looks_like_flag(&args[value_slot]) {
+            return;
+        }
+
+        // The slot holds another option. Scan forward (stopping at `--`,
+        // which is the option-terminator and the boundary into positional
+        // params) for the first non-option argument and pull it into the
+        // slot.
+        for j in (value_slot + 1)..args.len() {
+            if args[j] == "--" {
+                break;
+            }
+            if !Self::looks_like_flag(&args[j]) {
+                let value = args.remove(j);
+                args.insert(value_slot, value);
+                return;
+            }
+        }
     }
 }
 
@@ -801,6 +865,74 @@ mod tests {
             CommandLineArgs::try_parse_from(args(&["brush", "-c", "--", "echo", "--", "more"]))?;
         assert_eq!(parsed_args.command, Some("echo".to_string()));
         assert_eq!(parsed_args.script_args, ["--", "more"]);
+        Ok(())
+    }
+
+    #[test]
+    fn parse_c_then_flag_then_command() -> Result<()> {
+        // Bash treats `-c` as consuming the first *non-option* argument as
+        // its command, so `bash -c -l 'echo hi'` → command="echo hi",
+        // login=true. This is the form Claude Code's Bash tool uses.
+        let parsed_args =
+            CommandLineArgs::try_parse_from(args(&["brush", "-c", "-l", "echo hi"]))?;
+        assert_eq!(parsed_args.command, Some("echo hi".to_string()));
+        assert!(parsed_args.login);
+        assert!(parsed_args.script_args.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn parse_c_then_flag_then_command_with_positional() -> Result<()> {
+        // After pulling the command adjacent, remaining positionals become
+        // $0, $1, ... per POSIX.
+        let parsed_args = CommandLineArgs::try_parse_from(args(&[
+            "brush", "-c", "-l", "echo $0", "myname", "arg1",
+        ]))?;
+        assert_eq!(parsed_args.command, Some("echo $0".to_string()));
+        assert!(parsed_args.login);
+        assert_eq!(parsed_args.script_args, ["myname", "arg1"]);
+        Ok(())
+    }
+
+    #[test]
+    fn parse_ec_then_flag_then_command() -> Result<()> {
+        // The pull-adjacent transform must also handle combined-flag groups
+        // ending in `c` (like `-ec`).
+        let parsed_args =
+            CommandLineArgs::try_parse_from(args(&["brush", "-ec", "-l", "echo hi"]))?;
+        assert_eq!(parsed_args.command, Some("echo hi".to_string()));
+        assert!(parsed_args.exit_on_nonzero_command_exit);
+        assert!(parsed_args.login);
+        Ok(())
+    }
+
+    #[test]
+    fn parse_lc_adjacent_unchanged() -> Result<()> {
+        // `-lc 'cmd'` is `-l` + `-c 'cmd'` already adjacent; the transform
+        // must leave it alone.
+        let parsed_args = CommandLineArgs::try_parse_from(args(&["brush", "-lc", "echo hi"]))?;
+        assert_eq!(parsed_args.command, Some("echo hi".to_string()));
+        assert!(parsed_args.login);
+        Ok(())
+    }
+
+    #[test]
+    fn parse_c_with_only_flags_after_still_errors() {
+        // No non-option argument exists for `-c` to consume; clap should
+        // still produce a value-required error.
+        let result =
+            CommandLineArgs::try_parse_from(args(&["brush", "-c", "-l", "--login"]));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_c_then_flag_then_dashdash_then_command_unchanged() -> Result<()> {
+        // If the user explicitly used `--` to terminate options, the
+        // existing `--` handling takes over and the pull-adjacent transform
+        // is a no-op.
+        let parsed_args =
+            CommandLineArgs::try_parse_from(args(&["brush", "-c", "--", "echo hi"]))?;
+        assert_eq!(parsed_args.command, Some("echo hi".to_string()));
         Ok(())
     }
 
