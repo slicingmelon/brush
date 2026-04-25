@@ -17,9 +17,20 @@ pkg-url = "{ repo }/releases/download/{ name }-v{ version }/brush-{ target }{ ar
 [lib]
 bench = false
 
+# Fork: two binaries, `brush` and `bash`, both auto-discovered from
+# `src/bin/`. The `bash` alias lets `brush` be installed as a drop-in
+# Git-Bash replacement (e.g. via Claude Code's `CLAUDE_CODE_GIT_BASH_PATH`)
+# without a manual rename step. Same entry point — the binary detects its
+# invocation name at runtime to adjust the product display string (see
+# `productinfo::invoked_name`).
 [[bin]]
 name = "brush"
-path = "src/main.rs"
+path = "src/bin/brush.rs"
+bench = false
+
+[[bin]]
+name = "bash"
+path = "src/bin/bash.rs"
 bench = false
 
 [[test]]

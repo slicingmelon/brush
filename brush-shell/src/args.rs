@@ -61,8 +61,14 @@ pub struct CommandLineArgs {
     pub help: Option<bool>,
 
     /// Display shell version.
-    #[clap(long = "version", action = clap::ArgAction::Version)]
-    pub version: Option<bool>,
+    ///
+    /// Fork: handled manually (rather than via `clap::ArgAction::Version`) so
+    /// the printed banner reflects the actual invocation name — `bash (brush)
+    /// version ...` when invoked as `bash`, plain `brush version ...`
+    /// otherwise. See `productinfo::display_name` and the handler in
+    /// `entry::brush_main`.
+    #[clap(long = "version", action = clap::ArgAction::SetTrue)]
+    pub version: bool,
 
     /// Path to TOML-based `brush` config file (overrides default location).
     #[clap(long = "config", value_name = "FILE", help_heading = HEADING_CONFIG_OPTIONS)]

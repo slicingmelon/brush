@@ -96,13 +96,61 @@ Examples (rewritten before clap parsing):
 
 - `brush-shell/src/entry.rs` — `pull_c_value_adjacent` + tests
 
+### 🛠️ Build / install ergonomics
+
+#### `feat(install): produce a `bash` binary alongside `brush``
+
+The fork now ships a second binary named `bash` (`bash.exe` on Windows) built
+from the same source as `brush`. This eliminates the manual
+`cp brush.exe → bash.exe` step that was previously required when using brush
+as a Git Bash replacement (e.g. via Claude Code's `CLAUDE_CODE_GIT_BASH_PATH`
+env var, or anywhere a tool spawns `bash` by name).
+
+`cargo install --git https://github.com/slicingmelon/brush brush-shell` now
+deposits **both** `brush` and `bash` into `~/.cargo/bin/`.
+
+The `bash` binary is byte-identical-in-behavior to `brush` — it simply
+detects its invocation name at runtime via `std::env::current_exe()` and
+adjusts the product banner accordingly:
+
+| Invocation       | `--version` output                           |
+|------------------|----------------------------------------------|
+| `brush --version`| `brush version 0.3.0 (...) - https://...`    |
+| `bash --version` | `bash (brush) version 0.3.0 (...) - https://...` |
+
+The `(brush)` suffix on aliased invocations keeps the underlying
+implementation discoverable to users debugging "why is `bash --version` not
+GNU bash?".
+
+**Files changed**
+
+- `brush-shell/Cargo.toml` — declare two `[[bin]]` targets (`brush`, `bash`)
+  pointing at `src/bin/brush.rs` and `src/bin/bash.rs`
+- `brush-shell/src/bin/brush.rs` — entry shim (replaces former `src/main.rs`)
+- `brush-shell/src/bin/bash.rs` — alias entry shim
+- `brush-shell/src/productinfo.rs` — `invoked_name()` + `display_name()`
+  helpers; `get_product_display_str()` now uses them
+- `brush-shell/src/args.rs` — switch `--version` from
+  `clap::ArgAction::Version` to `SetTrue` so we can format the banner
+  ourselves at runtime
+- `brush-shell/src/entry.rs` — handle `--version` manually after parse,
+  printing `productinfo::get_product_display_str()` and exiting
+
 ## Installing the fork over the upstream binary
 
 If you use brush as your Git Bash replacement (e.g. via Claude Code's
 `CLAUDE_CODE_GIT_BASH_PATH` env var pointing at `~/.cargo/bin/bash.exe`),
-install the fork build over the existing binary:
+just install the fork — both `brush.exe` and `bash.exe` are deposited into
+`~/.cargo/bin/` automatically:
 
 ```sh
-cargo install --path brush-shell --bin brush --force
-# then rename/copy ~/.cargo/bin/brush.exe → ~/.cargo/bin/bash.exe
+cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force
 ```
+
+Or from a local clone:
+
+```sh
+cargo install --locked --path brush-shell --force
+```
+
+No rename step required.

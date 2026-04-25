@@ -36,6 +36,8 @@
 
 `brush` (**B**o(u)rn(e) **RU**sty **SH**ell) is a modern [bash-](https://www.gnu.org/software/bash/) and [POSIX-](https://pubs.opengroup.org/onlinepubs/9699919799/utilities/V3_chap02.html) compatible shell written in Rust. Run your existing scripts and `.bashrc` unchanged -- with syntax highlighting and auto-suggestions built in.
 
+> **🍴 This is a fork** of [reubeno/brush](https://github.com/reubeno/brush) maintained at [slicingmelon/brush](https://github.com/slicingmelon/brush) with Windows / Git-Bash / Claude Code compatibility fixes. See [`CHANGELOG.FORK.md`](./CHANGELOG.FORK.md) for fork-specific changes. Jump to [Installing this fork](#-installing-this-fork) for the install commands.
+
 ## At a glance
 
 ✅ Your existing `.bashrc` just works—aliases, functions, completions, all of it.<br/>
@@ -92,6 +94,54 @@ More detailed installation instructions are available below.
 _When you run `brush`, it should look exactly as `bash` does on your system: it processes your `.bashrc` and
 other standard configuration. If you'd like to distinguish the look of `brush` from the other shells
 on your system, you may author a `~/.brushrc` file._
+
+### 🍴 Installing this fork
+
+This fork lives at [`slicingmelon/brush`](https://github.com/slicingmelon/brush). The recommended install path is to build from the fork with the experimental features enabled — `experimental-bundled-coreutils` (bundles coreutils builtins like `ls`, `cat`, `cp`, … directly into the shell binary) and `experimental-builtins` (extra builtins such as `save`).
+
+> ℹ️ **Two binaries are produced.** Every install of this fork deposits both `brush` *and* `bash` (`brush.exe` / `bash.exe` on Windows) into `~/.cargo/bin/`. The `bash` binary is the same shell — it simply identifies itself as `bash (brush)` in version banners. This lets brush act as a drop-in Git-Bash replacement (e.g. via Claude Code's `CLAUDE_CODE_GIT_BASH_PATH`) without any manual rename step.
+
+**Install directly from the fork's Git repository:**
+
+```bash
+cargo install --locked --git https://github.com/slicingmelon/brush brush-shell \
+    --features experimental-bundled-coreutils,experimental-builtins
+```
+
+**Install from a local clone:**
+
+```bash
+git clone https://github.com/slicingmelon/brush
+cargo install --locked --path brush/brush-shell \
+    --features experimental-bundled-coreutils,experimental-builtins
+```
+
+You can also enable the umbrella `experimental` feature (which turns on all four experimental features — `experimental-builtins`, `experimental-bundled-coreutils`, `experimental-load`, `experimental-parser`):
+
+```bash
+cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --features experimental
+```
+
+**Force-reinstall over an existing build** (useful when upgrading the same version, e.g. when using brush as your Git Bash replacement via `CLAUDE_CODE_GIT_BASH_PATH`):
+
+```bash
+cargo install --locked --path brush/brush-shell --force \
+    --features experimental-bundled-coreutils,experimental-builtins
+```
+
+**Verify both binaries:**
+
+```bash
+brush --version    # → brush version 0.3.0 (...)
+bash  --version    # → bash (brush) version 0.3.0 (...)
+```
+
+**Uninstall:**
+
+```bash
+cargo uninstall brush-shell
+```
+
 
 <details>
 <summary>🍺 <b>Installing using Homebrew</b> (macOS/Linux)</summary>

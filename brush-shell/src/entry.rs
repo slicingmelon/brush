@@ -234,6 +234,13 @@ pub fn run() {
         }
     };
 
+    // Fork: handle `--version` manually so the banner reflects the invocation
+    // name (e.g. `bash (brush) version 0.3.0 ...` when installed as `bash`).
+    if parsed_args.version {
+        println!("{}", productinfo::get_product_display_str());
+        std::process::exit(0);
+    }
+
     //
     // Run.
     //

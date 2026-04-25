@@ -25,8 +25,35 @@ pub const PRODUCT_GIT_VERSION: &str = git_version::git_version!(
     args = ["--always", "--dirty=-modified", "--match", ""]
 );
 
+/// Returns the file stem of the currently running executable (e.g. `bash`
+/// when this binary was installed/renamed to `bash[.exe]`), falling back to
+/// [`PRODUCT_NAME`] when the executable path is unavailable or empty.
+pub fn invoked_name() -> String {
+    std::env::current_exe()
+        .ok()
+        .as_deref()
+        .and_then(std::path::Path::file_stem)
+        .map(|s| s.to_string_lossy().into_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| PRODUCT_NAME.to_string())
+}
+
+/// Returns the display name to use in version banners. When the binary is
+/// invoked under its canonical name, returns just `"brush"`. When invoked
+/// under an alias (e.g. `bash`), returns `"bash (brush)"` so the underlying
+/// implementation is still discoverable.
+pub fn display_name() -> String {
+    let invoked = invoked_name();
+    if invoked == PRODUCT_NAME {
+        PRODUCT_NAME.to_string()
+    } else {
+        std::format!("{invoked} ({PRODUCT_NAME})")
+    }
+}
+
 pub(crate) fn get_product_display_str() -> String {
+    let name = display_name();
     std::format!(
-        "{PRODUCT_NAME} version {PRODUCT_VERSION} ({PRODUCT_GIT_VERSION}) - {PRODUCT_DISPLAY_URI}"
+        "{name} version {PRODUCT_VERSION} ({PRODUCT_GIT_VERSION}) - {PRODUCT_DISPLAY_URI}"
     )
 }
