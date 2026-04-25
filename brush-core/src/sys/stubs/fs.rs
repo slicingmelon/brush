@@ -40,6 +40,12 @@ pub fn try_open_special_file(
     None
 }
 
+/// Translates an MSYS / Git-Bash / Cygwin style absolute path into a native
+/// path. Stub implementation: never translates.
+pub const fn try_translate_msys_path(_path: &std::path::Path) -> Option<std::path::PathBuf> {
+    None
+}
+
 /// Returns the path to the system-wide shell profile script.
 ///
 /// Stub implementation that returns `None`.

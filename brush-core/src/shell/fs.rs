@@ -165,7 +165,19 @@ impl<SE: crate::extensions::ShellExtensions> crate::Shell<SE> {
     /// * `path` - The path to get the absolute form of.
     pub fn absolute_path(&self, path: impl AsRef<Path>) -> PathBuf {
         let path = path.as_ref();
-        if path.as_os_str().is_empty() || path.is_absolute() {
+        if path.as_os_str().is_empty() {
+            return path.to_owned();
+        }
+        // On Windows, an MSYS / Git-Bash / Cygwin style path like
+        // `/c/Users/foo` is "absolute" semantically but `Path::is_absolute`
+        // rejects it (it lacks a drive letter), so without translation we'd
+        // join it onto the cwd and produce a drive-rooted Frankenpath like
+        // `C:/c/Users/foo`. Translate it to a native form first. On other
+        // platforms this is a no-op.
+        if let Some(translated) = crate::sys::fs::try_translate_msys_path(path) {
+            return translated;
+        }
+        if path.is_absolute() {
             path.to_owned()
         } else {
             self.working_dir().join(path)

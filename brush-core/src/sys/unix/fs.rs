@@ -225,6 +225,12 @@ pub const fn try_open_special_file(_path: &Path) -> Option<Result<std::fs::File,
     None
 }
 
+/// Translates an MSYS / Git-Bash / Cygwin style absolute path into a native
+/// path. On Unix there is nothing to translate.
+pub const fn try_translate_msys_path(_path: &Path) -> Option<PathBuf> {
+    None
+}
+
 /// Returns the path to the system-wide shell profile script.
 pub fn get_system_profile_path() -> Option<&'static Path> {
     Some(Path::new("/etc/profile"))
