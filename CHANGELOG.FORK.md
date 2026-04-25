@@ -3,7 +3,20 @@
 Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brush).
 Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 
-## Unreleased
+# v0.3.1 - 2026-04-25
+
+> Per-component version bumps in this release:
+>
+> | Crate                      | Previous | New     | Why                                                                                                                                                |
+> |----------------------------|----------|---------|----------------------------------------------------------------------------------------------------------------------------------------------------|
+> | `brush-core`               | 0.4.0    | 0.4.1   | Pgid plumbing through `ExecutionContext`; new `BundledDispatch` struct + `Registration::bundled_dispatch` field; `Registration` is now `#[non_exhaustive]`; new `raw_builtin()` factory; `special()` is no longer `const fn`; `execute_via_bundled` method on `SimpleCommand`; Windows console-flash suppression on child spawn; MSYS path translator for `/c/...`-style paths. |
+> | `brush-shell`              | 0.3.0    | 0.3.1   | New `experimental-bundled-coreutils-{unix,linux}-extras` and `experimental-bundled-extras{,-findutils}` feature flags; `bundled.rs` shim now uses `BundledDispatch` + factory pattern; `install_default_providers()` merges the new `brush-bundled-extras` registry; `bash` binary alias produced alongside `brush`; `-c` adjacency rewriting fix; bash-version banner; `--norc`/`--noprofile`/`--no-config` interactive defaults. |
+> | `brush-coreutils-builtins` | 0.1.0    | 0.1.1   | 26 missing utilities + `[` test alias added (Phase 0 reconciled against canonical `uutils/coreutils@0.8.0`); new aggregate features `coreutils.all-unix`, `coreutils.all-linux`; target-gated dep blocks for Unix-only and Linux-only `uu_*` crates. |
+> | `brush-bundled-extras`     | —        | 0.1.0   | New crate. Adapter wrappers for non-uutils-coreutils utilities. Currently ships `find` + `xargs` from `uutils/findutils@0.8.0` (Cycle 2 of `coreutils-coverage-expansion.md`). |
+>
+> Crates not bumped (no source changes on this branch): `brush-builtins`,
+> `brush-experimental-builtins`, `brush-parser`, `brush-interactive`,
+> `brush-test-harness`, `xtask`, `fuzz`, top-level `brush`.
 
 ### ♻️ Refactors
 
