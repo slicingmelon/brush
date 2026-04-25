@@ -10,10 +10,87 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 > | Crate                  | Previous | New     | Why                                                                  |
 > |------------------------|----------|---------|----------------------------------------------------------------------|
 > | `brush-core`           | 0.4.1    | 0.4.2   | Conditional `CREATE_NO_WINDOW` — fix a v0.3.1 regression where bundled coreutils produced no output when brush ran interactively from a real Windows console. |
-> | `brush-bundled-extras` | 0.1.0    | 0.1.1   | New `extras.sed` / `extras.uutils-sed-all` features wiring `uutils/sed = "0.1.1"` via a `sed_adapter` (Cycle 0a of `posixutils-rs-integration.md`). |
-> | `brush-shell`          | 0.3.1    | 0.3.2   | New `experimental-bundled-extras-uutils-sed` feature flag; `bundled.rs` cfg-gate extended to merge the extras registry when only this flag is enabled. |
+> | `brush-bundled-extras` | 0.1.0    | 0.1.2   | Cycle 0a — wire `uutils/sed = "0.1.1"` via `sed_adapter` (`extras.sed` / `extras.uutils-sed-all` features). Cycle 0c-revised — wire `pegasusheavy/awk-rs = "0.1.0"` via `awk_adapter` (`extras.awk` / `extras.awk-rs-all` features). Both per `posixutils-rs-integration.md`. |
+> | `brush-shell`          | 0.3.1    | 0.3.3   | New `experimental-bundled-extras-uutils-sed` (Cycle 0a) and `experimental-bundled-extras-awk-rs` (Cycle 0c-revised) feature flags; `bundled.rs` cfg-gate extended to merge the extras registry when only one of them is enabled. |
 
 ### ✨ Features
+
+#### `feat(bundled): ship awk via pegasusheavy/awk-rs crates.io dep`
+
+Cycle 0c-revised of [`docs/planning/posixutils-rs-integration.md`](./docs/planning/posixutils-rs-integration.md).
+**Second gap-filler from that plan to land.**
+
+`awk` is now available as a bundled builtin behind a new feature flag.
+The implementation is a clean crates.io dep on
+[`pegasusheavy/awk-rs`](https://crates.io/crates/awk-rs) v0.1.0 — no
+vendoring. Upstream advertises 100% POSIX compatibility (with optional
+gawk extensions), 639 tests at 86% library coverage, Criterion
+benchmarks, and **CI matrix tests Windows-latest + macOS + Linux**.
+Dual MIT / Apache-2.0. Light deps (`regex` + `thiserror`).
+
+Upstream's lib exposes `Lexer` / `Parser` / `Interpreter` directly but
+no single `run(args)` entrypoint, so the brush adapter ports the CLI
+driver from upstream `src/main.rs::run()` line-for-line. Intent: stay
+drop-in equivalent to the standalone `awk-rs` binary, no behavioral
+divergence. Supports the standard set of POSIX awk flags:
+
+| Flag | Purpose |
+|---|---|
+| `-F fs` (and `-Ffs`) | Field separator |
+| `-v var=val` | Pre-execution variable assignment |
+| `-f progfile` | Read AWK program from file |
+| `-P` / `--posix` | Strict POSIX mode (disable gawk extensions) |
+| `-c` / `--traditional` / `--compat` | Traditional AWK mode |
+| `--` | End of options (rest are input files) |
+| `-` (as input file) | Read from stdin |
+
+Wiring matches the find/xargs/sed adapter precedent:
+
+| Layer | What landed |
+|---|---|
+| `brush-bundled-extras/Cargo.toml` | `awk-rs = { version = "0.1.0", optional = true }`; new features `extras.awk` and `extras.awk-rs-all`; `extras.all` aggregate now layers in `extras.awk-rs-all`. |
+| `brush-bundled-extras/src/lib.rs` | New `awk_adapter` + `awk_run` (port of upstream main.rs::run) + `print_awk_help`. `args[0]` carries `"awk"` per brush dispatch convention; adapter slices `&args[1..]` to mirror upstream's `&env::args()[1..]`. |
+| `brush-shell/Cargo.toml` | New `experimental-bundled-extras-awk-rs` feature flag pulling `extras.awk-rs-all`. |
+| `brush-shell/src/bundled.rs` | `cfg(any(...))` gate around the bundled-extras registry merge extended to include `experimental-bundled-extras-awk-rs`. |
+
+**Smoke verification on Windows** (rustc 1.88.0 host build):
+
+| Command | Output |
+|---|---|
+| `brush -c "echo 'a b c' \| awk '{print \$2}'"` (DoD) | `b` |
+| `brush -c "awk 'BEGIN{for(i=1;i<=10;i++) sum+=i; print sum}'"` (DoD) | `55` |
+| `brush -c "type awk"` | `awk is a shell builtin` |
+| `brush -c "awk --version"` | `awk-rs 0.1.0` |
+| `brush -c "awk '{print FILENAME, NR}' brush-bundled-extras/Cargo.toml"` | rows tagged with `<path> <n>` |
+| `brush -c "printf 'a:1\nb:2\nc:3\n' \| awk -F: '{print \$1, \$2 * 10}'"` | `a 10` / `b 20` / `c 30` |
+| `brush -c "awk -v x=5 'BEGIN{print x+10}'"` | `15` |
+| `brush -c "printf 'red\nblue\ngreen\n' \| awk 'length(\$0) > 3'"` | `blue` / `green` |
+| `brush -c "printf 'apple 5\nbanana 3\ncherry 8\n' \| awk '{ s += \$2 } END { print s }'"` | `16` |
+
+**Cross-platform caveat** — the `find … | xargs awk '…'` DoD case from
+the plan does not work on Windows out of the box. Reason is unrelated
+to awk-rs: `xargs` `execvp`s its target command, which doesn't see
+brush's bundled builtins, and Windows has no `awk.exe` on PATH unless
+the user installed Git Bash MSYS2. On Linux/macOS where `awk` is
+typically present on PATH, the pipeline works as expected. Same
+limitation applies to `find -exec`, `parallel`, etc.
+
+**Maturity caveat**: awk-rs v0.1.0 is a fresh single-author + dependabot
+crate. Upstream README claim of "100% POSIX-compatible" is supported by
+639 tests at 86% library coverage and Criterion benches showing ~1.6×
+gawk on a 100k-line sum, but production-grade awk scripts (multi-file
+hold space, complex regex backreferences, locale edge cases) should be
+exercised before relying on this. The crate's listed repository
+(`github.com/pegasusheavy/awk-rs`) returns 404 — the source previously
+lived at `github.com/quinnjr/rawk` and was migrated; the published
+crates.io tarball is the authoritative source today.
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — add `awk-rs` optional dep + features
+- `brush-bundled-extras/src/lib.rs` — `awk_adapter` + `awk_run` + `print_awk_help` + registration
+- `brush-shell/Cargo.toml` — `experimental-bundled-extras-awk-rs` flag
+- `brush-shell/src/bundled.rs` — extend cfg gate
 
 #### `feat(bundled): ship sed via uutils/sed crates.io dep`
 

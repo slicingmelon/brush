@@ -1,7 +1,7 @@
 [package]
 name = "brush-bundled-extras"
 description = "Adapter wrappers for non-uutils-coreutils utilities bundled into brush-shell (findutils/diffutils/procps/grep/sed/awk as available)"
-version = "0.1.1"
+version = "0.1.2"
 categories.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -27,6 +27,9 @@ default = []
 # Per-utility features (uutils/sed 0.1.1).
 'extras.sed' = ["dep:sed"]
 
+# Per-utility features (pegasusheavy/awk-rs 0.1.0).
+'extras.awk' = ["dep:awk-rs"]
+
 # Source-grouped aggregates.
 'extras.findutils-all' = [
     'extras.find',
@@ -35,14 +38,18 @@ default = []
 'extras.uutils-sed-all' = [
     'extras.sed',
 ]
+'extras.awk-rs-all' = [
+    'extras.awk',
+]
 
 # Top-level aggregate. Layers in everything the cycle has wired so far —
-# currently findutils (Cycle 2) and uutils/sed (posixutils-rs-integration
-# Cycle 0a). diffutils (Cycle 3), procps (Cycle 4), grep (0b), and awk
-# (0c) extend this set as they land.
+# findutils (Cycle 2), uutils/sed (posixutils-rs-integration Cycle 0a),
+# awk-rs (Cycle 0c-revised). diffutils (Cycle 3), procps (Cycle 4), and
+# grep (0b) extend this set as they land.
 'extras.all' = [
     'extras.findutils-all',
     'extras.uutils-sed-all',
+    'extras.awk-rs-all',
 ]
 
 [lints]
@@ -55,3 +62,9 @@ findutils = { version = "0.8.0", optional = true }
 # graph stays single-version. See
 # `docs/planning/posixutils-rs-integration.md` Cycle 0a.
 sed = { version = "0.1.1", optional = true }
+# pegasusheavy/awk-rs exposes Lexer/Parser/Interpreter as a public lib
+# (no single `run(args)` entrypoint); the adapter mirrors upstream
+# `src/main.rs::run()`. License MIT/Apache-2.0; deps regex + thiserror
+# only. CI tests Windows. See
+# `docs/planning/posixutils-rs-integration.md` Cycle 0c-revised.
+awk-rs = { version = "0.1.0", optional = true }

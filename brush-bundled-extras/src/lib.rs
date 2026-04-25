@@ -77,6 +77,11 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
         m.insert("sed".to_string(), sed_adapter as BundledFn);
     }
 
+    #[cfg(feature = "extras.awk")]
+    {
+        m.insert("awk".to_string(), awk_adapter as BundledFn);
+    }
+
     m
 }
 
@@ -125,6 +130,188 @@ fn xargs_adapter(args: Vec<OsString>) -> i32 {
         .collect();
     let strs: Vec<&str> = owned.iter().map(String::as_str).collect();
     findutils::xargs::xargs_main(&strs)
+}
+
+/// Adapter for `awk_rs::Interpreter` (pegasusheavy/awk-rs v0.1.0).
+///
+/// Upstream exposes `Lexer`/`Parser`/`Interpreter` as a public lib but
+/// no `run(args)` entrypoint, so this adapter mirrors the CLI driver in
+/// upstream `src/main.rs::run()` line-for-line. Intent: stay drop-in
+/// equivalent to the standalone `awk-rs` binary, no behavioral
+/// divergence.
+///
+/// `args[0]` carries the bundled name (`"awk"`), set in
+/// `bundled.rs::maybe_dispatch`. Upstream's main.rs operates on
+/// `&args[1..]`, so we slice the same way.
+///
+/// Lossy `OsString` → `String` conversion follows the find/xargs
+/// precedent — awk programs and `-v var=val` assignments are typically
+/// ASCII-safe; non-UTF-8 input file paths get U+FFFD substitution
+/// before reaching the interpreter (which then opens via `File::open`,
+/// where the lossy path may fail to resolve).
+#[cfg(feature = "extras.awk")]
+fn awk_adapter(args: Vec<OsString>) -> i32 {
+    let owned: Vec<String> = args
+        .into_iter()
+        .map(|s| s.to_string_lossy().into_owned())
+        .collect();
+    let rest: &[String] = owned.get(1..).unwrap_or(&[]);
+    match awk_run(rest) {
+        Ok(code) => code,
+        Err(e) => {
+            eprintln!("awk: {e}");
+            2
+        }
+    }
+}
+
+/// Argv-driven entrypoint mirroring `awk-rs/src/main.rs::run()`.
+/// Returns the awk exit code on success, an error string on failure
+/// (printed by [`awk_adapter`] as `awk: <msg>` before exit 2).
+#[cfg(feature = "extras.awk")]
+#[allow(
+    clippy::too_many_lines,
+    reason = "ports upstream main.rs::run() argv parser line-for-line; refactoring would diverge from upstream"
+)]
+fn awk_run(args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+    use awk_rs::{Interpreter, Lexer, Parser};
+    use std::fs::{self, File};
+    use std::io::{self, BufReader};
+
+    let mut field_separator = String::from(" ");
+    let mut program_source: Option<String> = None;
+    let mut input_files: Vec<String> = Vec::new();
+    let mut variables: Vec<(String, String)> = Vec::new();
+    let mut posix_mode = false;
+    let mut traditional_mode = false;
+
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+
+        if arg == "--help" || arg == "-h" {
+            print_awk_help();
+            return Ok(0);
+        }
+
+        if arg == "--version" {
+            println!("awk-rs 0.1.0");
+            return Ok(0);
+        }
+
+        if arg == "--posix" || arg == "-P" {
+            posix_mode = true;
+            traditional_mode = false;
+            i += 1;
+            continue;
+        }
+
+        if arg == "--traditional" || arg == "--compat" || arg == "-c" {
+            traditional_mode = true;
+            posix_mode = false;
+            i += 1;
+            continue;
+        }
+
+        if arg == "-F" {
+            i += 1;
+            let fs_arg = args.get(i).ok_or("option -F requires an argument")?;
+            field_separator = fs_arg.clone();
+        } else if let Some(fs) = arg.strip_prefix("-F") {
+            field_separator = fs.to_string();
+        } else if arg == "-v" {
+            i += 1;
+            let var_assign = args.get(i).ok_or("option -v requires an argument")?;
+            if let Some((name, value)) = var_assign.split_once('=') {
+                variables.push((name.to_string(), value.to_string()));
+            } else {
+                return Err(format!("invalid variable assignment: {var_assign}").into());
+            }
+        } else if arg == "-f" {
+            i += 1;
+            let script_file = args.get(i).ok_or("option -f requires an argument")?;
+            program_source = Some(fs::read_to_string(script_file)?);
+        } else if arg == "--" {
+            i += 1;
+            input_files.extend(args[i..].iter().cloned());
+            break;
+        } else if arg.starts_with('-') && arg != "-" {
+            return Err(format!("unknown option: {arg}").into());
+        } else if program_source.is_none() {
+            program_source = Some(arg.clone());
+        } else {
+            input_files.push(arg.clone());
+        }
+
+        i += 1;
+    }
+
+    let program_source = program_source.ok_or("no program provided")?;
+
+    let mut lexer = Lexer::new(&program_source);
+    let tokens = lexer.tokenize()?;
+    let mut parser = Parser::new(tokens);
+    let program = parser.parse()?;
+
+    let mut interpreter = Interpreter::new(&program);
+    interpreter.set_posix_mode(posix_mode);
+    interpreter.set_traditional_mode(traditional_mode);
+    interpreter.set_fs(&field_separator);
+
+    let mut argv = vec![String::from("awk")];
+    argv.extend(input_files.iter().cloned());
+    interpreter.set_args(argv);
+
+    for (name, value) in &variables {
+        interpreter.set_variable(name, value);
+    }
+
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+
+    let exit_code = if input_files.is_empty() {
+        interpreter.set_filename("");
+        let stdin = io::stdin();
+        let inputs = vec![BufReader::new(stdin.lock())];
+        interpreter.run(inputs, &mut output)?
+    } else {
+        let mut exit_code = 0;
+        for filename in &input_files {
+            interpreter.set_filename(filename);
+            if filename == "-" {
+                let stdin = io::stdin();
+                let inputs = vec![BufReader::new(stdin.lock())];
+                exit_code = interpreter.run(inputs, &mut output)?;
+            } else {
+                let file = File::open(filename)?;
+                let inputs = vec![BufReader::new(file)];
+                exit_code = interpreter.run(inputs, &mut output)?;
+            }
+        }
+        exit_code
+    };
+
+    Ok(exit_code)
+}
+
+#[cfg(feature = "extras.awk")]
+fn print_awk_help() {
+    println!(
+        r#"Usage: awk [OPTIONS] 'program' [file ...]
+       awk [OPTIONS] -f progfile [file ...]
+
+A 100% POSIX-compatible AWK implementation in Rust with gawk extensions.
+
+Options:
+  -F fs            Set the field separator to fs
+  -v var=val       Assign value to variable before execution
+  -f progfile      Read the AWK program from file
+  -P, --posix      Strict POSIX mode (disable gawk extensions)
+  -c, --traditional Traditional AWK mode (disable gawk extensions)
+  --version        Print version information
+  --help           Print this help message
+"#
+    );
 }
 
 /// Adapter for `sed::sed::uumain` (uutils/sed v0.1.1).
