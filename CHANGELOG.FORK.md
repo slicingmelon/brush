@@ -7,9 +7,273 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 
 > Per-component version bumps planned for the next release:
 >
-> | Crate        | Previous | New     | Why                                                                  |
-> |--------------|----------|---------|----------------------------------------------------------------------|
-> | `brush-core` | 0.4.1    | 0.4.2   | Conditional `CREATE_NO_WINDOW` — fix a v0.3.1 regression where bundled coreutils produced no output when brush ran interactively from a real Windows console. |
+> | Crate                  | Previous | New     | Why                                                                  |
+> |------------------------|----------|---------|----------------------------------------------------------------------|
+> | `brush-core`           | 0.4.1    | 0.4.2   | Conditional `CREATE_NO_WINDOW` — fix a v0.3.1 regression where bundled coreutils produced no output when brush ran interactively from a real Windows console. |
+> | `brush-bundled-extras` | 0.1.0    | 0.1.3   | Cycle 0a — wire `uutils/sed = "0.1.1"` via `sed_adapter` (`extras.sed` / `extras.uutils-sed-all` features). Cycle 0c-revised — wire `pegasusheavy/awk-rs = "0.1.0"` via `awk_adapter` (`extras.awk` / `extras.awk-rs-all` features). Cycle 0b-revised — wire `awnion/fastgrep = "0.1.8"` via `grep_adapter::grep_main` registered as both `grep` and `fastgrep` (`extras.grep` / `extras.fastgrep-all` features). All per `posixutils-rs-integration.md`. |
+> | `brush-shell`          | 0.3.1    | 0.3.4   | New `experimental-bundled-extras-uutils-sed` (Cycle 0a), `experimental-bundled-extras-awk-rs` (Cycle 0c-revised), and `experimental-bundled-extras-fastgrep` (Cycle 0b-revised) feature flags; `bundled.rs` cfg-gate extended to merge the extras registry when only one of them is enabled. The `-fastgrep` flag carries an MSRV requirement of rustc ≥ 1.92 (above the workspace MSRV of 1.88.0) — opt-in only. |
+
+### 📋 Process / Decisions
+
+#### `docs(planning): record Cycle 0b-revised gate outcome (Windows-build + MSRV both passed)`
+
+Cycle 0b-revised of [`docs/planning/posixutils-rs-integration.md`](./docs/planning/posixutils-rs-integration.md)
+prescribes two MANDATORY pre-merge gates before the production grep
+adapter can land:
+
+1. **MSRV gate** — fastgrep declares `rust-version = "1.92"` while
+   brush is at `1.88.0`. Plan offered four resolution options
+   (workspace MSRV bump, feature-conditional MSRV, upstream PR, or
+   fall-through to fallback).
+2. **Windows-build smoke gate** — fastgrep upstream CI is Ubuntu +
+   macOS only; Windows-buildability and Windows-correctness needed
+   independent verification before brush could ship a feature flag
+   that depends on the crate.
+
+**Outcome — both gates PASSED.** Decision: option (b)
+feature-conditional MSRV (workspace stays at 1.88.0; the new flag
+documents `rustc ≥ 1.92` as a per-flag requirement). `cargo install
+fastgrep --version 0.1.8` built cleanly on Windows 11 in 35s
+producing a working `grep.exe`. Runtime smoke checks (`--version`,
+`-rn`, stdin pipe, no-match exit code, EPIPE under `| head`, trigram
+cache directory creation) all behaved correctly. Cycle 0b-fallback
+(vendor from posix-tools-for-windows) is **not triggered** — the
+production adapter follows in the next commit on this branch.
+
+Full decision log entry in the planning doc.
+
+### ✨ Features
+
+#### `feat(bundled): ship grep via awnion/fastgrep crates.io dep, dual-name registration`
+
+Cycle 0b-revised PR 2 of [`docs/planning/posixutils-rs-integration.md`](./docs/planning/posixutils-rs-integration.md).
+Final gap-filler from that plan to land. PR 1 (the gates commit
+recorded immediately above) verified MSRV + Windows-build green; this
+commit ships the production adapter.
+
+`grep` and `fastgrep` are now both available as bundled builtins
+behind a single feature flag, dispatching to the same adapter. The
+implementation is a clean crates.io dep on
+[`awnion/fastgrep`](https://crates.io/crates/fastgrep) v0.1.8 — no
+vendoring. Upstream advertises a "drop-in replacement for GNU grep"
+with **2–12× faster** Criterion-measured throughput (sparse-literal
+`-rn` 4.4×, dense `-rc` 12×, regex `-rn` 9.4×). SIMD via `memchr`,
+parallel by default, lazy trigram index. Dual MIT / Apache-2.0.
+
+Upstream's lib exposes the search engine as public modules
+(`cli` / `output` / `pattern` / `searcher` / `threadpool` / `trigram`
+/ `walker`) but the orchestration lives in `src/bin/grep.rs::main()`
+and is not a `pub fn`. The brush-side adapter
+([`brush-bundled-extras/src/grep_adapter.rs`](./brush-bundled-extras/src/grep_adapter.rs))
+ports that orchestration line-for-line, with three small adaptations:
+
+1. `Cli::try_parse_from(args)` instead of `Cli::parse()` — consumes
+   the `Vec<OsString>` from the bundled-dispatch path rather than
+   `std::env::args_os()`.
+2. `ExitCode` returns flattened to `i32` to match brush's `BundledFn`
+   signature.
+3. Upstream's one `expect("failed to spawn walker thread")` replaced
+   with explicit error handling (brush forbids `clippy::expect_used`).
+4. Version output uses the hardcoded version string `"0.1.8"` and
+   skips upstream's `env!("GIT_SHA")` reference (brush-bundled-extras
+   has no `build.rs` setting that env var).
+
+**Dual-name registration** (matches upstream README's "installed
+binary is called `grep`" intent):
+
+```rust
+m.insert("grep".to_string(), grep_adapter::grep_main as BundledFn);
+m.insert("fastgrep".to_string(), grep_adapter::grep_main as BundledFn);
+```
+
+Both names dispatch to the same adapter, so users can pick whichever
+makes their intent clear.
+
+| Layer | What landed |
+|---|---|
+| `brush-bundled-extras/Cargo.toml` | `fastgrep = "0.1.8"` + `clap = "4"` + `kanal = "0.1"` optional deps; new features `extras.grep` and `extras.fastgrep-all`; `extras.all` aggregate now layers in `extras.fastgrep-all` (which transitively bumps the umbrella `experimental-bundled-extras` flag's MSRV to 1.92). |
+| `brush-bundled-extras/src/grep_adapter.rs` | New module — port of upstream `src/bin/grep.rs::main()` plus its `run_single_file` / `run_stdin` / `run_files` helpers. ~370 lines. |
+| `brush-bundled-extras/src/lib.rs` | Module declaration `mod grep_adapter` + dual-name registration in `bundled_commands()`. |
+| `brush-shell/Cargo.toml` | New `experimental-bundled-extras-fastgrep` feature flag, with explicit MSRV note in the comment. |
+| `brush-shell/src/bundled.rs` | `cfg(any(...))` gate around the bundled-extras registry merge extended. |
+
+**MSRV gate**: fastgrep declares `rust-version = "1.92"` while brush
+workspace MSRV stays at `1.88.0`. Per the gate-0 decision (option b,
+"feature-conditional MSRV"), enabling `experimental-bundled-extras-fastgrep`
+on a toolchain older than 1.92 triggers a Cargo dep-resolution error
+at build time. Users on 1.88–1.91 can either upgrade their toolchain
+or stick with the other extras flags. Documented in the brush-shell
+flag's inline comment.
+
+**Smoke verification on Windows** (rustc 1.95.0 host build):
+
+| Command | Result |
+|---|---|
+| `brush -c "type grep"` | `grep is a shell builtin` |
+| `brush -c "type fastgrep"` | `fastgrep is a shell builtin` |
+| `brush -c "grep --version"` | fastgrep banner with `[index v1]` |
+| `brush -c "fastgrep --version"` | identical (alias dispatches to same adapter) |
+| `brush -c "echo hello \| grep h"` | `hello` |
+| `brush -c "grep -rn 'fn main' brush-shell/src"` | 2 matches found |
+| `brush -c "grep -rn 'doesnotexistxyz' brush-shell/src"` | exit 1 |
+| `brush -c "printf 'apple\nbanana\ncherry\n' \| grep -i CHE"` | `cherry` |
+| `brush -c "grep -rn 'fn main' brush-shell/src \| head -2"` (with bundled head) | 2 lines, exit 0, EPIPE-safe |
+
+**Three intentional behavioral deviations from GNU grep** (inherited
+from fastgrep upstream — brush ships the upstream defaults verbatim,
+no overrides):
+
+1. **Default 100 MiB file size limit** — files larger than this are
+   skipped with a stderr warning. Override with `FASTGREP_NO_LIMIT=1`
+   or `--max-file-size=<BYTES>`.
+2. **Default 15000-byte line truncation** — extremely long lines are
+   truncated. Override with `--max-line-len=0`.
+3. **Output order is non-deterministic** — fastgrep is parallel by
+   default; per-file output order across multi-file searches depends
+   on thread scheduling. Force single-threaded with `-j1` for
+   deterministic ordering.
+
+These are AI-agent-friendly defaults (fastgrep's primary audience
+overlaps with Claude Code's Bash tool) but may surprise users coming
+from GNU grep. Brush takes them as-is.
+
+**GNU compat caveat** — fastgrep's [`GNU_GREP_COMPAT.md`](https://github.com/awnion/fastgrep/blob/main/GNU_GREP_COMPAT.md)
+catalogues ~10 GNU grep flags that are unsupported (`-G`, `-P`, `-z`,
+`--line-buffered`, `-R`, `-d`, `-D`, `--binary-files`, `-NUM`).
+Common interactive flags (`-rn`, `-i`, `-c`, `-l`, `-F`, `-E`,
+`-A`/`-B`/`-C`, `-o`, `--include`/`--exclude`, color) are all
+supported.
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — add `fastgrep` + `clap` + `kanal` optional deps + features
+- `brush-bundled-extras/src/grep_adapter.rs` — new module porting upstream `bin/grep.rs`
+- `brush-bundled-extras/src/lib.rs` — `mod grep_adapter` + dual-name registration
+- `brush-shell/Cargo.toml` — `experimental-bundled-extras-fastgrep` flag with MSRV note
+- `brush-shell/src/bundled.rs` — extend cfg gate
+
+#### `feat(bundled): ship awk via pegasusheavy/awk-rs crates.io dep`
+
+Cycle 0c-revised of [`docs/planning/posixutils-rs-integration.md`](./docs/planning/posixutils-rs-integration.md).
+**Second gap-filler from that plan to land.**
+
+`awk` is now available as a bundled builtin behind a new feature flag.
+The implementation is a clean crates.io dep on
+[`pegasusheavy/awk-rs`](https://crates.io/crates/awk-rs) v0.1.0 — no
+vendoring. Upstream advertises 100% POSIX compatibility (with optional
+gawk extensions), 639 tests at 86% library coverage, Criterion
+benchmarks, and **CI matrix tests Windows-latest + macOS + Linux**.
+Dual MIT / Apache-2.0. Light deps (`regex` + `thiserror`).
+
+Upstream's lib exposes `Lexer` / `Parser` / `Interpreter` directly but
+no single `run(args)` entrypoint, so the brush adapter ports the CLI
+driver from upstream `src/main.rs::run()` line-for-line. Intent: stay
+drop-in equivalent to the standalone `awk-rs` binary, no behavioral
+divergence. Supports the standard set of POSIX awk flags:
+
+| Flag | Purpose |
+|---|---|
+| `-F fs` (and `-Ffs`) | Field separator |
+| `-v var=val` | Pre-execution variable assignment |
+| `-f progfile` | Read AWK program from file |
+| `-P` / `--posix` | Strict POSIX mode (disable gawk extensions) |
+| `-c` / `--traditional` / `--compat` | Traditional AWK mode |
+| `--` | End of options (rest are input files) |
+| `-` (as input file) | Read from stdin |
+
+Wiring matches the find/xargs/sed adapter precedent:
+
+| Layer | What landed |
+|---|---|
+| `brush-bundled-extras/Cargo.toml` | `awk-rs = { version = "0.1.0", optional = true }`; new features `extras.awk` and `extras.awk-rs-all`; `extras.all` aggregate now layers in `extras.awk-rs-all`. |
+| `brush-bundled-extras/src/lib.rs` | New `awk_adapter` + `awk_run` (port of upstream main.rs::run) + `print_awk_help`. `args[0]` carries `"awk"` per brush dispatch convention; adapter slices `&args[1..]` to mirror upstream's `&env::args()[1..]`. |
+| `brush-shell/Cargo.toml` | New `experimental-bundled-extras-awk-rs` feature flag pulling `extras.awk-rs-all`. |
+| `brush-shell/src/bundled.rs` | `cfg(any(...))` gate around the bundled-extras registry merge extended to include `experimental-bundled-extras-awk-rs`. |
+
+**Smoke verification on Windows** (rustc 1.88.0 host build):
+
+| Command | Output |
+|---|---|
+| `brush -c "echo 'a b c' \| awk '{print \$2}'"` (DoD) | `b` |
+| `brush -c "awk 'BEGIN{for(i=1;i<=10;i++) sum+=i; print sum}'"` (DoD) | `55` |
+| `brush -c "type awk"` | `awk is a shell builtin` |
+| `brush -c "awk --version"` | `awk-rs 0.1.0` |
+| `brush -c "awk '{print FILENAME, NR}' brush-bundled-extras/Cargo.toml"` | rows tagged with `<path> <n>` |
+| `brush -c "printf 'a:1\nb:2\nc:3\n' \| awk -F: '{print \$1, \$2 * 10}'"` | `a 10` / `b 20` / `c 30` |
+| `brush -c "awk -v x=5 'BEGIN{print x+10}'"` | `15` |
+| `brush -c "printf 'red\nblue\ngreen\n' \| awk 'length(\$0) > 3'"` | `blue` / `green` |
+| `brush -c "printf 'apple 5\nbanana 3\ncherry 8\n' \| awk '{ s += \$2 } END { print s }'"` | `16` |
+
+**Cross-platform caveat** — the `find … | xargs awk '…'` DoD case from
+the plan does not work on Windows out of the box. Reason is unrelated
+to awk-rs: `xargs` `execvp`s its target command, which doesn't see
+brush's bundled builtins, and Windows has no `awk.exe` on PATH unless
+the user installed Git Bash MSYS2. On Linux/macOS where `awk` is
+typically present on PATH, the pipeline works as expected. Same
+limitation applies to `find -exec`, `parallel`, etc.
+
+**Maturity caveat**: awk-rs v0.1.0 is a fresh single-author + dependabot
+crate. Upstream README claim of "100% POSIX-compatible" is supported by
+639 tests at 86% library coverage and Criterion benches showing ~1.6×
+gawk on a 100k-line sum, but production-grade awk scripts (multi-file
+hold space, complex regex backreferences, locale edge cases) should be
+exercised before relying on this. The crate's listed repository
+(`github.com/pegasusheavy/awk-rs`) returns 404 — the source previously
+lived at `github.com/quinnjr/rawk` and was migrated; the published
+crates.io tarball is the authoritative source today.
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — add `awk-rs` optional dep + features
+- `brush-bundled-extras/src/lib.rs` — `awk_adapter` + `awk_run` + `print_awk_help` + registration
+- `brush-shell/Cargo.toml` — `experimental-bundled-extras-awk-rs` flag
+- `brush-shell/src/bundled.rs` — extend cfg gate
+
+#### `feat(bundled): ship sed via uutils/sed crates.io dep`
+
+Cycle 0a of [`docs/planning/posixutils-rs-integration.md`](./docs/planning/posixutils-rs-integration.md).
+**First gap-filler from the posixutils-rs-integration plan to land.**
+
+`sed` is now available as a bundled builtin behind a new feature flag.
+The implementation is a clean crates.io dep on
+[`uutils/sed`](https://github.com/uutils/sed) v0.1.1 — no vendoring,
+no behavioral overrides. uucore version (`0.8.0`) matches
+brush-coreutils-builtins exactly, so the dep graph stays single-version.
+MSRV (`1.88`) matches brush's workspace MSRV (`1.88.0`), so no MSRV
+friction.
+
+Wiring follows the existing `find`/`xargs` adapter precedent:
+
+| Layer | What landed |
+|---|---|
+| `brush-bundled-extras/Cargo.toml` | `sed = { version = "0.1.1", optional = true }`; new features `extras.sed` and `extras.uutils-sed-all`; `extras.all` now layers in `extras.uutils-sed-all`. |
+| `brush-bundled-extras/src/lib.rs` | New `sed_adapter` calls `sed::sed::uumain(args.into_iter())`. SIGPIPE/localization init from `uucore::bin!` is intentionally omitted — bundled dispatch always runs sed in a fresh `brush --invoke-bundled` subprocess. |
+| `brush-shell/Cargo.toml` | New `experimental-bundled-extras-uutils-sed` feature flag pulling `extras.uutils-sed-all`. |
+| `brush-shell/src/bundled.rs` | `cfg(any(...))` gate around the bundled-extras registry merge extended to include `experimental-bundled-extras-uutils-sed`. |
+
+**Smoke verification on Windows** (rustc 1.88.0 host build):
+
+| Command | Output |
+|---|---|
+| `brush -c "echo a \| sed s/a/b/"` | `b` |
+| `brush -c "echo hello \| sed s/h/H/"` | `Hello` |
+| `brush -c "type sed"` | `sed is a shell builtin` |
+| `brush -c "printf 'foo\nbar\nbaz\n' \| sed -n '2p'"` | `bar` |
+| `brush -c "printf 'one\ntwo\nthree\n' \| sed 's/o/O/g'"` | `One` / `twO` / `three` |
+| `brush -c "sed --version"` | `sed 0.1.1` |
+
+**Maturity caveat**: uutils/sed is at 0.1.1 — pre-feature-complete.
+POSIX sed has a large surface (hold space, branching, label commands,
+multi-line `N`/`P`/`D`); upstream may not cover all of it yet. Real-world
+sed scripts should be tested before relying on this in production. The
+fork tracks upstream for v0.2.0+ as the next re-evaluation point.
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — add `sed` optional dep + features
+- `brush-bundled-extras/src/lib.rs` — `sed_adapter` + registration
+- `brush-shell/Cargo.toml` — `experimental-bundled-extras-uutils-sed` flag
+- `brush-shell/src/bundled.rs` — extend cfg gate
 
 ### 🐛 Bug Fixes
 
