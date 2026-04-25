@@ -97,46 +97,52 @@ on your system, you may author a `~/.brushrc` file._
 
 ### 🍴 Installing this fork
 
-This fork lives at [`slicingmelon/brush`](https://github.com/slicingmelon/brush). The recommended install path is to build from the fork with the experimental features enabled — `experimental-bundled-coreutils` (bundles coreutils builtins like `ls`, `cat`, `cp`, … directly into the shell binary) and `experimental-builtins` (extra builtins such as `save`).
+This fork lives at [`slicingmelon/brush`](https://github.com/slicingmelon/brush). The recommended install path is to build from the fork with the experimental feature flags below. Pick the right line for your platform — `--force` lets you reinstall over an existing build (useful when iterating, or when using brush as a Git-Bash replacement via Claude Code's `CLAUDE_CODE_GIT_BASH_PATH`).
 
-> ℹ️ **Two binaries are produced.** Every install of this fork deposits both `brush` *and* `bash` (`brush.exe` / `bash.exe` on Windows) into `~/.cargo/bin/`. The `bash` binary is the same shell — it simply identifies itself as `bash (brush)` in version banners. This lets brush act as a drop-in Git-Bash replacement (e.g. via Claude Code's `CLAUDE_CODE_GIT_BASH_PATH`) without any manual rename step.
+> ℹ️ **Two binaries are produced.** Every install of this fork deposits both `brush` *and* `bash` (`brush.exe` / `bash.exe` on Windows) into `~/.cargo/bin/`. The `bash` binary is the same shell — it simply identifies itself as `bash (brush)` in version banners. This lets brush act as a drop-in Git-Bash replacement without any manual rename step.
 
-**Install directly from the fork's Git repository:**
+**Recommended per-platform install (everything bundled — coreutils + Unix/Linux extras + findutils):**
 
 ```bash
-cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --features experimental-bundled-coreutils,experimental-builtins
+# Linux (full Unix+Linux extras + findutils — id, stat, timeout, chmod, chown, find, xargs, ...)
+cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force --features experimental-builtins,experimental-bundled-coreutils-linux-extras,experimental-bundled-extras
+
+# macOS (Unix extras + findutils — same as Linux minus stdbuf/chcon/runcon)
+cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force --features experimental-builtins,experimental-bundled-coreutils-unix-extras,experimental-bundled-extras
+
+# Windows (cross-platform coreutils only — uutils gates id/chmod/etc to cfg(unix); fall through to PATH for those) + findutils
+cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force --features experimental-builtins,experimental-bundled-coreutils,experimental-bundled-extras
 ```
 
-**Install from a local clone:**
+**Install from a local clone** (use the same `--features` line as above, just replace the `--git ...` part with `--path brush/brush-shell`):
 
 ```bash
 git clone https://github.com/slicingmelon/brush
-cargo install --locked --path brush/brush-shell --features experimental-bundled-coreutils,experimental-builtins
+cargo install --locked --path brush/brush-shell --force --features experimental-builtins,experimental-bundled-coreutils,experimental-bundled-extras
 ```
 
-**Plain install (no experimental features):**
+**Plain install (no experimental features — minimal shell, no bundled utilities):**
 
 ```bash
-cargo install --locked --path brush/brush-shell
+cargo install --locked --git https://github.com/slicingmelon/brush brush-shell
 ```
 
-You can also enable the umbrella `experimental` feature (which turns on all four experimental features — `experimental-builtins`, `experimental-bundled-coreutils`, `experimental-load`, `experimental-parser`):
+**What each feature flag enables:**
 
-```bash
-cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --features experimental
-```
-
-**Force-reinstall over an existing build** (useful when upgrading the same version, e.g. when using brush as your Git Bash replacement via `CLAUDE_CODE_GIT_BASH_PATH`):
-
-```bash
-cargo install --locked --path brush/brush-shell --force --features experimental-bundled-coreutils,experimental-builtins
-```
+| Flag                                              | What it bundles                                                                                                                                           | Platforms |
+|---------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|
+| `experimental-builtins`                           | Extra native shell builtins (e.g. `save`)                                                                                                                 | all       |
+| `experimental-bundled-coreutils`                  | uutils/coreutils — every utility that builds on Tier-1 targets (cross-platform set, ~82 utilities including `cat`, `ls`, `head`, `tail`, `wc`, `sort`, ...)| all       |
+| `experimental-bundled-coreutils-unix-extras`      | Adds Unix-only utilities on top: `id`, `groups`, `stat`, `timeout`, `install`, `chmod`, `chown`, `chgrp`, `chroot`, `logname`, `tty`, `mkfifo`, `mknod`, `nice`, `nohup`, `stty`, `kill`, `pinky`, `uptime`, `users`, `who`, `hostid` | Unix only |
+| `experimental-bundled-coreutils-linux-extras`     | Adds Linux-only utilities on top of `-unix-extras`: `stdbuf`, `chcon`, `runcon`                                                                           | Linux only|
+| `experimental-bundled-extras`                     | Non-coreutils utilities via adapter wrappers — currently `find` and `xargs` from `uutils/findutils` (more upstreams arriving in future cycles)            | all       |
+| `experimental` *(umbrella)*                       | Convenience meta-feature: `experimental-builtins` + `experimental-bundled-coreutils` + `experimental-load` + `experimental-parser`                        | all       |
 
 **Verify both binaries:**
 
 ```bash
-brush --version    # → brush version 0.3.0 (...)
-bash  --version    # → bash (brush) version 0.3.0 (...)
+brush --version    # → brush version 0.3.1 (...)
+bash  --version    # → bash (brush) version 0.3.1 (...)
 ```
 
 **Uninstall:**
@@ -144,6 +150,8 @@ bash  --version    # → bash (brush) version 0.3.0 (...)
 ```bash
 cargo uninstall brush-shell
 ```
+
+See [`CHANGELOG.FORK.md`](./CHANGELOG.FORK.md) for the full v0.3.1 release notes and per-component version bumps.
 
 
 <details>
