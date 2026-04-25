@@ -235,6 +235,7 @@ fn shim_execute<SE: ShellExtensions>(
         // replace it with an explicit `<name>` after `DISPATCH_FLAG` so the
         // child's dispatcher sees it in a fixed slot.
         let bundled_name = context.command_name.clone();
+        let pgid = context.process_group_id;
         let mut child_args: Vec<CommandArg> = Vec::with_capacity(args.len() + 2);
         child_args.push(CommandArg::String(String::new())); // args[0], dropped
         child_args.push(CommandArg::String(DISPATCH_FLAG.into()));
@@ -254,6 +255,10 @@ fn shim_execute<SE: ShellExtensions>(
         // `<name>:` rather than `brush:`. Without this the child sees the
         // brush exe path as argv[0] and misattributes errors.
         cmd.argv0 = Some(bundled_name);
+        // Inherit the enclosing pipeline's pgid so this child joins the same
+        // process group as its neighbours. No-op on Windows, where
+        // `process_group` is a stub.
+        cmd.process_group_id = pgid;
 
         let spawn_result = cmd.execute().await?;
         let wait_result = spawn_result.wait().await?;
