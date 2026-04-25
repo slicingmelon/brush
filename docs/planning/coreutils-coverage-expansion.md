@@ -17,11 +17,15 @@ expect ~25 more utilities that fall into four categories:
    `install`, `chgrp`, `kill`, `hashsum`. Adding these is mostly a Cargo
    feature/registry edit per utility, gated for Windows where applicable.
 2. **In sibling uutils repos** (separate crates, not currently in our
-   workspace): `find`, `xargs`, `locate`, `updatedb` from
-   [`uutils/findutils`](https://github.com/uutils/findutils); `diff`, `cmp`,
+   workspace): `find`, `xargs` from
+   [`uutils/findutils`](https://github.com/uutils/findutils) (`locate`/
+   `updatedb` are NOT in findutils 0.8.0); `diff`, `cmp`,
    `diff3`, `sdiff` from [`uutils/diffutils`](https://github.com/uutils/diffutils);
    `ps`, `top`, `free`, `uptime`, `vmstat`, `watch`, `pgrep`, `pkill` from
-   [`uutils/procps`](https://github.com/uutils/procps).
+   [`uutils/procps`](https://github.com/uutils/procps). All of these need
+   per-utility adapter functions (their APIs diverge from coreutils'
+   `uumain` shape) and ship in **one new crate** `brush-bundled-extras`
+   — see Cycle 2 for the architectural rationale.
 3. **No mature Rust port:** `grep`, `sed`, `awk`. These are not in the uutils
    ecosystem at usable maturity. Options are tracked but deferred — see
    §Cycle 5.
@@ -38,10 +42,10 @@ independently behind feature flags.
 | Cycle | Scope | Source | Priority | Effort | Risk |
 |---|---|---|---|---|---|
 | 1 | Add missing utilities from existing uutils coreutils dep | `uutils/coreutils` 0.8.0 (already pinned) | High — fixes `id` etc. | 0.5–1 day | Low |
-| 2 | Integrate `uutils/findutils` (`find`, `xargs`) | new crate dep | High | 1–2 days | Medium |
-| 3 | Integrate `uutils/diffutils` (`diff`, `cmp`) | new crate dep | Medium | 0.5–1 day | Low |
-| 4 | Integrate `uutils/procps` (`ps`, `uptime`, `top`, `free`, ...) | new crate dep | Medium-Low | 1–2 days | Medium (Windows surface area) |
-| 5 | Research: `grep` / `sed` / `awk` survey | investigation only | Low (unblock, don't ship) | 0.5 day | N/A |
+| 2 | `uutils/findutils` (`find`, `xargs`) → `brush-bundled-extras` | new mega-crate | High | 1–2 days | Medium (API divergence) |
+| 3 | `uutils/diffutils` (`diff`, `cmp`, ...) → `brush-bundled-extras` | same crate | Medium | 0.5–1 day | Low |
+| 4 | `uutils/procps` (`ps`, `uptime`, ...) → `brush-bundled-extras` | same crate (re-evaluate if surface huge) | Medium-Low | 1–2 days | Medium (Windows surface area) |
+| 5 | Research + (if shipped) `grep`/`sed`/`awk` → `brush-bundled-extras` | same crate | Low (unblock, don't ship) | 0.5 day research | N/A |
 
 Combined Cycles 1–4: **3–6 days**, mostly mechanical wiring once Cycle 1
 establishes the pattern. None of these cycles depend on the
@@ -391,105 +395,155 @@ utility, document in CHANGELOG, file an upstream issue if it's a bug.
 
 ---
 
-## PDCA Cycle 2 — Integrate uutils/findutils
+## PDCA Cycle 2 — Integrate uutils/findutils into `brush-bundled-extras`
+
+> **Architectural pivot 2026-04-25**: Cycle 2 pre-flight found that the
+> draft plan's "separate crate per upstream repo" default does not earn its
+> ceremony. The single concrete argument that the draft cited — `uucore`
+> version skew tolerance — is a Cargo *dependency-graph* concern, not a
+> *crate-layout* one. Cargo will pull both `uucore` versions whether they
+> live in one crate or two. The "separate crate" pattern is therefore
+> over-fragmentation. **Cycles 2/3/4 (and any future grep/sed/awk
+> integration) all share a single mega-crate `brush-bundled-extras`** that
+> houses adapter wrappers for every non-uutils-coreutils utility we ship.
+> See Decision Log entry.
 
 ### Plan
 
-**Hypothesis**: Adding `uutils/findutils` as a workspace dependency and
-mirroring the registration pattern of `brush-coreutils-builtins` gives us
-`find` and `xargs` (and optionally `locate`/`updatedb`) behind a
-`findutils.<name>` feature umbrella.
+**Hypothesis**: Adding `findutils 0.8.0` as an optional dependency of a new
+crate `brush-bundled-extras`, with per-utility adapter functions
+translating between findutils' API shape and brush's `BundledFn` type,
+gives us `find` and `xargs` (the only two utilities findutils 0.8.0 ships)
+behind `extras.find` / `extras.xargs` feature flags. The same crate later
+hosts diffutils (Cycle 3), procps (Cycle 4 — pending re-evaluation), and
+grep/sed/awk (Cycle 5 — pending integration decision).
 
-**Pre-flight verification (do FIRST, before committing to the cycle)**:
-- Does `uutils/findutils` publish `uu_find`, `uu_xargs` to crates.io? Check
-  https://crates.io/crates/uu_find. Versions, MSRV, Windows compatibility.
-- Does its `uumain` API match `uucore::bin!` expectations? If not, the
-  adapter macro needs adjustment.
-- Does it depend on a different `uucore` version than 0.8.0? If yes, we
-  need to either align or accept duplicate uucore in the build.
+**Pre-flight verification — completed 2026-04-25** (findings recorded
+inline; this section is now ground truth, not a TODO):
 
-**Architectural decision**: separate crate `brush-findutils-builtins` that
-mirrors `brush-coreutils-builtins`, OR fold into `brush-coreutils-builtins`
-under a `findutils.<name>` feature namespace?
+- ✅ findutils 0.8.0 is on GitHub at
+  [`uutils/findutils@0.8.0`](https://github.com/uutils/findutils/tree/0.8.0)
+  and on crates.io as the single crate `findutils = "0.8.0"`.
+- ❌ **API divergence**: findutils does **not** expose `uumain`-shape
+  functions. It exposes:
+  - `findutils::find::find_main(args: &[&str], deps: &StandardDependencies) -> i32`
+  - `findutils::xargs::xargs_main(args: &[&str]) -> i32`
+  Differences from coreutils' `uumain(impl Iterator<Item = OsString>) -> i32`:
+  argv slice vs iterator; `&str` vs `OsString` (lossy on non-UTF-8 args);
+  `find_main` requires a `StandardDependencies` for IO/clock/fs injection.
+- ❌ **uucore version skew**: findutils 0.8.0 pins `uucore = "0.0.30"`;
+  our coreutils dep pins `uucore = "0.8.0"`. Cargo resolves both, doubling
+  uucore-side code in the binary. Accepted cost; not a justification for
+  separate crates.
+- ❌ **Inventory smaller than draft assumed**: findutils 0.8.0 ships only
+  `find` and `xargs`. `locate` and `updatedb` are **not** in this version.
+  Draft plan was wrong about this.
 
-The case for **separate crate** rests on *one concrete benefit*, not
-hand-waved "cleanliness":
+**Architectural decision (revised)**: one crate, `brush-bundled-extras`.
 
-- **Tolerates `uucore` version skew.** If `uutils/findutils` pins
-  `uucore = "0.9.x"` while our coreutils dep is `uucore = "0.8.0"`, Cargo
-  will resolve to two `uucore` instances rather than fail. In a single
-  crate, the two `uucore` deps would still coexist (Cargo allows
-  semver-incompatible duplicates), but the entanglement makes diagnosing
-  a feature-flag conflict harder. Separate crates put the version pin
-  next to the utility it serves.
-- All other rationales ("cleaner ownership", "easier upstream-tracking")
-  are subjective and not load-bearing — Cargo features in one crate are
-  already namespaced.
+- Pairs with the existing layout: `brush-builtins` (native), 
+  `brush-experimental-builtins` (native experimental), 
+  `brush-coreutils-builtins` (uutils-coreutils direct), 
+  **`brush-bundled-extras` (adapter-wrapped non-coreutils utilities)**.
+- Each utility inside has its own feature flag (`extras.find`,
+  `extras.xargs`, later `extras.diff`, `extras.cmp`, ...) and its own
+  adapter function handling whatever argv/dep-injection shape its upstream
+  needs.
+- Source-grouped aggregates: `extras.findutils-all`, `extras.diffutils-all`,
+  ...
+- Top-level aggregate: `extras.all`.
+- One `bundled_commands()` returning `HashMap<String, BundledFn>`, merged
+  by `brush-shell::bundled.rs::install_default_providers()` alongside the
+  existing coreutils registry.
 
-The case for **folding into one crate**:
-
-- One `Cargo.toml` block to maintain, not three.
-- One `register!` macro definition (vs duplicating it).
-- One feature umbrella to expose to `brush-shell` (`coreutils.all` could
-  expand to also enable findutils/diffutils via re-exports).
-- The crate name "brush-coreutils-builtins" misrepresents content but
-  could be renamed once (to e.g. `brush-bundled-utilities`) — one-time
-  cost.
-
-**Decision**: pick separate-crate **only if Phase 2's pre-flight reveals
-real `uucore` version skew between sibling repos and 0.8.0**. If skew is
-zero (all sibling repos pin `uucore = "0.8.0"`), the fold-into-one-crate
-path wins by simplicity. Don't decide by default.
-
-**Success criteria**:
-- `brush -c 'find . -name "*.rs" | head'` works on all three platforms.
+**Success criteria** (Cycle 2 only — `find`/`xargs`):
+- `brush -c 'find . -name "*.rs"'` works on all three platforms (subject
+  to findutils 0.8.0's own platform support).
 - `brush -c 'find . -type f | xargs wc -l'` works (multi-stage pipeline,
-  exercises Cycle 2 of bundled-coreutils-pipelines plan if landed).
-- `findutils.all` aggregate feature works on all three platforms.
+  exercises bundled-coreutils-pipelines Cycle 2 if landed; serializes
+  otherwise — but still functionally correct).
+- `extras.findutils-all` and `extras.find` / `extras.xargs` features wired
+  through `brush-shell` as `experimental-bundled-extras` /
+  `experimental-bundled-extras-findutils`.
+- Builds clean on Windows. (findutils itself targets Linux primarily but
+  is largely cross-platform-buildable; verify.)
 
 ### Do
 
-1. Pre-flight: read `uutils/findutils` `Cargo.toml`, check crates.io.
-2. New crate `brush-findutils-builtins/` mirroring the coreutils crate
-   layout.
-3. Wire it into `brush-shell/Cargo.toml` behind a new feature
-   `experimental-bundled-findutils` (parallel to
-   `experimental-bundled-coreutils`).
-4. Update `brush-shell/src/bundled.rs::install_default_providers()` to
-   merge the new crate's registry into the unified `BundledFn` map.
-5. Smoke tests + CHANGELOG.
+1. Create new crate `brush-bundled-extras/` (Cargo.toml + src/lib.rs)
+   following the same scaffolding shape as `brush-coreutils-builtins`.
+   Single optional dep on `findutils = "0.8.0"`.
+2. In `brush-bundled-extras/src/lib.rs`, write per-utility adapter
+   functions:
+   - `find_adapter(args: Vec<OsString>) -> i32` — converts argv to
+     `Vec<String>` then `Vec<&str>`, constructs `StandardDependencies`,
+     calls `findutils::find::find_main`. Lossy fallback on non-UTF-8 args
+     using `OsString::to_string_lossy()`; document the lossiness.
+   - `xargs_adapter(args: Vec<OsString>) -> i32` — same pattern, no deps
+     argument needed.
+3. Provide `bundled_commands() -> HashMap<String, BundledFn>` registering
+   the adapters under their feature flags.
+4. Wire into `brush-shell/Cargo.toml`:
+   - New feature `experimental-bundled-extras` →
+     `dep:brush-bundled-extras` + `brush-bundled-extras/extras.findutils-all`.
+   - Sub-feature `experimental-bundled-extras-findutils` for explicit
+     opt-in to just findutils.
+5. Update `brush-shell/src/bundled.rs::install_default_providers()` to
+   merge `brush-bundled-extras::bundled_commands()` into the registry
+   (gated on the new feature).
+6. Smoke tests + CHANGELOG.FORK.md entry.
 
 ### Check / Act
 
-Same shape as Cycle 1: smoke tests pass, no Windows breakage, register
-patterns match. If pre-flight reveals API mismatch, escalate to root-cause
-analysis before proceeding.
+Same shape as Cycle 1: smoke tests pass, no Windows breakage. If a Windows
+build error surfaces from findutils itself (e.g., `nix` dep), gate the
+features `cfg(unix)`-only and document. If `find_main`'s
+`StandardDependencies` constructor isn't `pub` from findutils' lib, file
+an upstream issue and fall back to spawning `find` as an embedded binary
+(see "Fallback" below).
+
+**Fallback (only if pre-flight assumptions break during Do)**: if the
+adapter approach fails (e.g., `StandardDependencies` not exported, or
+hard panic on non-UTF-8 args), revert to bundling `find`/`xargs` as
+pre-built binaries embedded via `include_bytes!` and dispatched via
+exec. Higher effort but architecturally separate from this cycle's
+hypothesis.
 
 ---
 
-## PDCA Cycle 3 — Integrate uutils/diffutils
+## PDCA Cycle 3 — Integrate uutils/diffutils into `brush-bundled-extras`
 
 ### Plan
 
-Same shape as Cycle 2, applied to
+Apply Cycle 2's pattern to
 [`uutils/diffutils`](https://github.com/uutils/diffutils): `diff`, `cmp`,
-`diff3`, `sdiff`. Pre-flight: confirm crates.io presence and `uumain`
-shape.
+`diff3`, `sdiff`. **Same crate** (`brush-bundled-extras`), additional
+`extras.diff` / `extras.cmp` / etc. feature flags inside.
+
+Pre-flight (identical structure to Cycle 2):
+- Confirm diffutils' published version, source layout, and lib API.
+- Diff its API shape against the `BundledFn` signature; write per-utility
+  adapters as needed.
+- Record uucore-skew (binary-bloat tax) but ignore it for crate-layout.
 
 **High-value targets**: `cmp` (used in scripts to compare files;
 0-or-1 exit semantics, simple); `diff` (universal). `diff3`/`sdiff` are
 nice-to-have.
 
-**Effort**: smaller than Cycle 2 because diffutils is more focused.
+**Effort**: typically smaller than Cycle 2 because diffutils is a more
+focused upstream — but pre-flight may reveal another API divergence.
 
 ### Do / Check / Act
 
-Mirror Cycle 2 exactly. Crate: `brush-diffutils-builtins`. Feature flag:
-`experimental-bundled-diffutils`. CHANGELOG.
+1. Add `diffutils = "..."` dep to `brush-bundled-extras/Cargo.toml`.
+2. Per-utility adapter functions in lib.rs.
+3. New feature flag `experimental-bundled-extras-diffutils` on
+   `brush-shell` (sub of `experimental-bundled-extras`).
+4. Smoke tests + CHANGELOG.
 
 ---
 
-## PDCA Cycle 4 — Integrate uutils/procps
+## PDCA Cycle 4 — Integrate uutils/procps into `brush-bundled-extras`
 
 ### Plan
 
@@ -497,11 +551,16 @@ Mirror Cycle 2 exactly. Crate: `brush-diffutils-builtins`. Feature flag:
 (`ps`, `top`, `free`, `uptime`, `vmstat`, `watch`, `pgrep`, `pkill`, ...).
 Many are Linux-only by nature (`/proc` filesystem readers).
 
-**Pre-flight risk**: unlike coreutils/findutils/diffutils, procps has the
-strongest platform binding. Each utility likely needs `cfg(unix)` or
-`cfg(target_os = "linux")` gating. Windows coverage may be near-zero for
-this set — expect to ship `procps.all` as Linux-only with most utilities
-gated off macOS too.
+**Pre-flight risk**: unlike coreutils, procps has the strongest platform
+binding. Each utility likely needs `cfg(unix)` or `cfg(target_os = "linux")`
+gating. Windows coverage may be near-zero for this set — expect to ship
+`extras.procps-all` as Linux-only with most utilities gated off macOS too.
+
+**Crate placement**: same `brush-bundled-extras` as Cycles 2/3 by default.
+Re-evaluate during pre-flight: if procps' surface area materially exceeds
+findutils + diffutils combined (binary-size and dep-graph cost), reopen
+the architectural decision and consider a separate crate. The mega-crate
+default should not become a dumping ground.
 
 **Decision point during pre-flight**: if Windows support is genuinely
 zero, consider deferring this entire cycle. Question: does the Git Bash
@@ -509,8 +568,10 @@ audience actually use `ps`/`top` etc.? Probably less so than `find`/`diff`.
 
 ### Do / Check / Act
 
-Mirror Cycles 2/3. Crate: `brush-procps-builtins`. Feature flag:
-`experimental-bundled-procps`. Heavy use of `cfg`.
+Mirror Cycles 2/3. Add `procps = "..."` dep to
+`brush-bundled-extras/Cargo.toml`. Per-utility adapter functions. New
+feature flag `experimental-bundled-extras-procps` on `brush-shell`
+(sub of `experimental-bundled-extras`). Heavy use of `cfg`.
 
 ---
 
@@ -543,6 +604,13 @@ Research session, ~half day. Document findings in
 Decide: ship now, defer to later, or document as "use system
 grep/sed/awk on PATH" forever.
 
+**If the decision is "ship":** the integration target is
+`brush-bundled-extras` (same crate as Cycles 2/3/4). New per-utility
+adapters; new `extras.<name>` feature flags. Whatever Rust crate the
+research selects (`ripgrep`, `frawk`, `sd`, ...) becomes an optional dep
+of `brush-bundled-extras`, the same way findutils/diffutils/procps do.
+No new crates.
+
 ---
 
 ## Effort & Confidence Recap
@@ -569,23 +637,28 @@ Recommended order: **1 → 2 → 3 → 4 → 5**. Rationale (priority by user-ci
 
 ---
 
-## Hard Pre-Flight Gates (before each sibling-crate cycle)
+## Hard Pre-Flight Gates (before each non-coreutils cycle)
 
 These are **gates, not open questions**. A cycle does not start until each
 gate has a documented yes/no answer.
 
-1. **`uucore` version alignment.** Inspect the sibling crate's
-   `Cargo.toml` (e.g., `uutils/findutils/Cargo.toml`) and read its
-   `uucore = "X.Y.Z"` pin. Compare to our `brush-coreutils-builtins`
-   pin (currently `0.8.0`).
-   - **Same version** → fold-into-one-crate is viable; revisit
-     architectural decision favoring fold.
-   - **Different semver-compatible version** (`0.8.0` vs `0.8.1`) →
-     Cargo unifies; either approach works.
-   - **Different semver-incompatible version** (`0.8.0` vs `0.9.0`) →
-     duplicate `uucore` in the build; separate-crate is preferred to
-     localize the duplication.
-2. **Native-builtin collision check.** For every utility name added by a
+1. **API shape audit.** Inspect the upstream crate's lib.rs (or
+   `[lib]`/`[[bin]]` layout). Confirm whether it exposes `uumain`-shape
+   functions or something different. If different, plan the per-utility
+   adapter signature *before* committing to the cycle. Cycle 2 hit this
+   for findutils (different argv shape + `StandardDependencies` injection)
+   and the adapters were straightforward, but other upstreams may need
+   harder workarounds — surface that risk early, not mid-Do.
+2. **`uucore` version skew (informational, not architectural).** Read
+   the upstream's `uucore` pin and compare to our `brush-coreutils-builtins`
+   pin (currently `0.8.0`). Record the skew. Cargo will pull both versions
+   for any semver-incompatible mismatch — that's a binary-size tax we
+   accept. **The skew is not a justification for splitting crates** —
+   Cargo handles version coexistence at the dependency-graph level, not
+   the crate-layout level. (This was the load-bearing argument for the
+   draft plan's "separate crate per upstream" default; Cycle 2 pre-flight
+   showed it doesn't hold. See Decision Log 2026-04-25.)
+3. **Native-builtin collision check.** For every utility name added by a
    cycle, grep `brush-builtins/src/` for a matching native builtin. If a
    native version exists, confirm `register_builtin_if_unset` at
    [`bundled.rs:292`](../../brush-shell/src/bundled.rs#L292) keeps the
@@ -692,3 +765,4 @@ For Cycle 5:
 | 2026-04-25 | (planning, reflexion) | Reflexion review scored the draft 3.05/5.0, below the 4.0 threshold. Amendments: (1) reorder to 1 → 2 → 3 → 4 → 5 — find/xargs outranks diff/cmp by user demand and shell-script frequency. (2) Add Phase 0 to verify §2b against upstream before any code change; mark §2b as provisional. (3) Replace hand-wavy "separate crate is cleaner" with a single concrete benefit (uucore version-skew tolerance) plus an explicit fold-vs-separate decision rule keyed off Phase 2 pre-flight. (4) Promote uucore-skew check from Open Question to a hard Pre-Flight gate. (5) Replace fabricated "~7 MB" binary-size claim with a Cycle 1 DoD measurement step. (6) Add native-builtin collision check as a hard Pre-Flight gate. (7) Add YAML smoke-test convention reference. (8) Add composition note with bundled-coreutils-pipelines plan. | Reflexion report 2026-04-25; this doc post-amendment. |
 | 2026-04-25 | Phase 0 (complete) | §2b reconciled against upstream `uutils/coreutils@0.8.0/Cargo.toml`. Findings: (1) `pathchk` confirmed as the only Tier1 cross-platform utility we don't have. (2) `hostid` was missing from the provisional draft — added (Unix-only, `feat_require_unix_hostid`). (3) `hashsum` removed from the to-add set — it is not a separate `uu_*` dependency in 0.8.0; it's a multi-call binary alias produced by uutils' driver, not a registerable utility crate. (4) `[` (test alias) confirmed not a separate dep; requires a manual second `register!` line aliasing `uu_test::uumain`. (5) `uptime` clarified to live in *both* uutils/coreutils (utmpx) and uutils/procps; coreutils version covers Unix today, so Cycle 1 owns it on Unix and Cycle 4 may revisit. (6) `stdbuf` requires `cfg(target_os = "linux")` (LD_PRELOAD-based); separated out from generic `cfg(unix)` set. Cycle 1's final action set: 1 cross-platform utility (`pathchk`), 17 `cfg(unix)` utilities (incl. `kill` as a no-op shim due to native collision), 3 `cfg(target_os = "linux")` utilities (`stdbuf`, `chcon`, `runcon`), 5 utmpx/hostid Unix utilities, plus 1 alias (`[`). 27 entries total. | `tmp-uutils-cargo.toml` (gh-fetched, not committed); §2b post-reconciliation. |
 | 2026-04-25 | Cycle 1 (code complete) | Implementation landed. 26 utilities + `[` alias wired into `brush-coreutils-builtins`. Three new feature aggregates (`coreutils.all`+`pathchk`, `coreutils.all-unix`, `coreutils.all-linux`) layered through `brush-shell` as opt-in flags (`-unix-extras`, `-linux-extras`). Windows build verified clean with `experimental-bundled-coreutils`; smoke test on dev binary confirmed `pathchk` and `[` register and execute correctly. Native-builtin collision: `kill` and `[` already exist as brush natives; `register_builtin_if_unset` keeps native winning — bundled registration is a benign no-op for shell-builtin lookup, but bundled-dispatch fast path still routes to uutils. Two phases deferred: 1.5 (YAML smoke tests need test-harness feature plumbing) and 1.6 (xtask drift check, not blocking). | Commit `4f814d3`. |
+| 2026-04-25 | Cycle 2 (pre-flight, architectural pivot) | Cycle 2 pre-flight findings: (1) findutils 0.8.0 ships only `find` + `xargs` as binaries (`locate`/`updatedb` are NOT in 0.8.0; draft plan was wrong). (2) findutils API is divergent from coreutils' `uumain` shape — `find_main(args: &[&str], deps: &StandardDependencies) -> i32` and `xargs_main(args: &[&str]) -> i32`; per-utility adapter functions required. (3) findutils pins `uucore = "0.0.30"` while coreutils pins `uucore = "0.8.0"` — Cargo will pull both (binary-size tax accepted). (4) **Architectural pivot**: the draft plan's "separate crate per upstream repo" default does not earn its ceremony. Its single load-bearing argument (uucore version skew tolerance) is a Cargo *dependency-graph* concern, not a *crate-layout* one — Cargo coexists versions whether they're in one crate or many. Cycles 2/3/4 (and any future grep/sed/awk integration via Cycle 5) will all share **one mega-crate `brush-bundled-extras`** that houses adapter wrappers for every non-uutils-coreutils utility. Pairs naturally with the existing layout (`brush-builtins`, `brush-experimental-builtins`, `brush-coreutils-builtins`). The "Hard Pre-Flight Gate" for uucore-skew has been demoted from a gate to an informational record, since it no longer drives architectural choice. | Pre-flight 2026-04-25 (gh-fetched `findutils@0.8.0/Cargo.toml`, lib.rs, src/find/main.rs, src/xargs/main.rs); user-reflected decision in conversation. |
