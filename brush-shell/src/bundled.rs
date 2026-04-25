@@ -88,7 +88,8 @@ pub fn install_default_providers() {
 
     #[cfg(any(
         feature = "experimental-bundled-extras",
-        feature = "experimental-bundled-extras-findutils"
+        feature = "experimental-bundled-extras-findutils",
+        feature = "experimental-bundled-extras-uutils-sed"
     ))]
     {
         // `brush-bundled-extras` declares its own `BundledFn` type alias

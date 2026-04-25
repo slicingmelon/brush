@@ -7,9 +7,59 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 
 > Per-component version bumps planned for the next release:
 >
-> | Crate        | Previous | New     | Why                                                                  |
-> |--------------|----------|---------|----------------------------------------------------------------------|
-> | `brush-core` | 0.4.1    | 0.4.2   | Conditional `CREATE_NO_WINDOW` — fix a v0.3.1 regression where bundled coreutils produced no output when brush ran interactively from a real Windows console. |
+> | Crate                  | Previous | New     | Why                                                                  |
+> |------------------------|----------|---------|----------------------------------------------------------------------|
+> | `brush-core`           | 0.4.1    | 0.4.2   | Conditional `CREATE_NO_WINDOW` — fix a v0.3.1 regression where bundled coreutils produced no output when brush ran interactively from a real Windows console. |
+> | `brush-bundled-extras` | 0.1.0    | 0.1.1   | New `extras.sed` / `extras.uutils-sed-all` features wiring `uutils/sed = "0.1.1"` via a `sed_adapter` (Cycle 0a of `posixutils-rs-integration.md`). |
+> | `brush-shell`          | 0.3.1    | 0.3.2   | New `experimental-bundled-extras-uutils-sed` feature flag; `bundled.rs` cfg-gate extended to merge the extras registry when only this flag is enabled. |
+
+### ✨ Features
+
+#### `feat(bundled): ship sed via uutils/sed crates.io dep`
+
+Cycle 0a of [`docs/planning/posixutils-rs-integration.md`](./docs/planning/posixutils-rs-integration.md).
+**First gap-filler from the posixutils-rs-integration plan to land.**
+
+`sed` is now available as a bundled builtin behind a new feature flag.
+The implementation is a clean crates.io dep on
+[`uutils/sed`](https://github.com/uutils/sed) v0.1.1 — no vendoring,
+no behavioral overrides. uucore version (`0.8.0`) matches
+brush-coreutils-builtins exactly, so the dep graph stays single-version.
+MSRV (`1.88`) matches brush's workspace MSRV (`1.88.0`), so no MSRV
+friction.
+
+Wiring follows the existing `find`/`xargs` adapter precedent:
+
+| Layer | What landed |
+|---|---|
+| `brush-bundled-extras/Cargo.toml` | `sed = { version = "0.1.1", optional = true }`; new features `extras.sed` and `extras.uutils-sed-all`; `extras.all` now layers in `extras.uutils-sed-all`. |
+| `brush-bundled-extras/src/lib.rs` | New `sed_adapter` calls `sed::sed::uumain(args.into_iter())`. SIGPIPE/localization init from `uucore::bin!` is intentionally omitted — bundled dispatch always runs sed in a fresh `brush --invoke-bundled` subprocess. |
+| `brush-shell/Cargo.toml` | New `experimental-bundled-extras-uutils-sed` feature flag pulling `extras.uutils-sed-all`. |
+| `brush-shell/src/bundled.rs` | `cfg(any(...))` gate around the bundled-extras registry merge extended to include `experimental-bundled-extras-uutils-sed`. |
+
+**Smoke verification on Windows** (rustc 1.88.0 host build):
+
+| Command | Output |
+|---|---|
+| `brush -c "echo a \| sed s/a/b/"` | `b` |
+| `brush -c "echo hello \| sed s/h/H/"` | `Hello` |
+| `brush -c "type sed"` | `sed is a shell builtin` |
+| `brush -c "printf 'foo\nbar\nbaz\n' \| sed -n '2p'"` | `bar` |
+| `brush -c "printf 'one\ntwo\nthree\n' \| sed 's/o/O/g'"` | `One` / `twO` / `three` |
+| `brush -c "sed --version"` | `sed 0.1.1` |
+
+**Maturity caveat**: uutils/sed is at 0.1.1 — pre-feature-complete.
+POSIX sed has a large surface (hold space, branching, label commands,
+multi-line `N`/`P`/`D`); upstream may not cover all of it yet. Real-world
+sed scripts should be tested before relying on this in production. The
+fork tracks upstream for v0.2.0+ as the next re-evaluation point.
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — add `sed` optional dep + features
+- `brush-bundled-extras/src/lib.rs` — `sed_adapter` + registration
+- `brush-shell/Cargo.toml` — `experimental-bundled-extras-uutils-sed` flag
+- `brush-shell/src/bundled.rs` — extend cfg gate
 
 ### 🐛 Bug Fixes
 

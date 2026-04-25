@@ -72,6 +72,11 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
         m.insert("xargs".to_string(), xargs_adapter as BundledFn);
     }
 
+    #[cfg(feature = "extras.sed")]
+    {
+        m.insert("sed".to_string(), sed_adapter as BundledFn);
+    }
+
     m
 }
 
@@ -120,4 +125,27 @@ fn xargs_adapter(args: Vec<OsString>) -> i32 {
         .collect();
     let strs: Vec<&str> = owned.iter().map(String::as_str).collect();
     findutils::xargs::xargs_main(&strs)
+}
+
+/// Adapter for `sed::sed::uumain` (uutils/sed v0.1.1).
+///
+/// Upstream signature is the standard uutils `uumain` shape:
+/// `uumain(args: impl IntoIterator<Item = OsString>) -> i32`. The
+/// `argv[0]` slot already carries the bundled name (`"sed"`) by the
+/// time this adapter runs — set in `bundled.rs::maybe_dispatch` —
+/// which is what uucore's `util_name()` lazily reads, so no
+/// special `set_utility_is_second_arg()` handling is needed.
+///
+/// SIGPIPE/localization wiring (the work
+/// `brush-coreutils-builtins::register!` does for uutils crates) is
+/// intentionally omitted to keep the adapter dep-light: the bundled
+/// dispatch path always runs sed inside a fresh `brush --invoke-bundled`
+/// subprocess, so pipe-close behavior is delegated to the host OS rather
+/// than masked by the runtime helpers. If sed's `translate!()` output
+/// turns up untranslated in the wild, lift the `prepare_uutil_runtime`
+/// helper into this crate (requires adding a uucore dep — currently a
+/// transitive of `sed` itself).
+#[cfg(feature = "extras.sed")]
+fn sed_adapter(args: Vec<OsString>) -> i32 {
+    sed::sed::uumain(args.into_iter())
 }
