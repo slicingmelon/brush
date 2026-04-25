@@ -511,32 +511,75 @@ hypothesis.
 
 ---
 
-## PDCA Cycle 3 — Integrate uutils/diffutils into `brush-bundled-extras`
+## PDCA Cycle 3 — Integrate uutils/diffutils — **DEFERRED**
 
-### Plan
+> **Status**: deferred 2026-04-25 pending upstream API fix. See Decision Log
+> entry. No code change in this cycle. Re-open when the unblock condition
+> below is met.
 
-Apply Cycle 2's pattern to
-[`uutils/diffutils`](https://github.com/uutils/diffutils): `diff`, `cmp`,
-`diff3`, `sdiff`. **Same crate** (`brush-bundled-extras`), additional
-`extras.diff` / `extras.cmp` / etc. feature flags inside.
+### Pre-flight findings (recorded 2026-04-25, ground truth)
 
-Pre-flight (identical structure to Cycle 2):
-- Confirm diffutils' published version, source layout, and lib API.
-- Diff its API shape against the `BundledFn` signature; write per-utility
-  adapters as needed.
-- Record uucore-skew (binary-bloat tax) but ignore it for crate-layout.
+- **Inventory smaller than draft**: diffutils 0.5.0 ships only `cmp` and
+  `diff` (no `diff3` / `sdiff`). Confirmed via `src/main.rs` dispatch
+  table at
+  [`uutils/diffutils@v0.5.0/src/main.rs`](https://github.com/uutils/diffutils/blob/v0.5.0/src/main.rs)
+  which only matches `"diff"` and `"cmp"`. Plan was wrong about the
+  4-utility set.
+- **`uucore` skew**: zero. diffutils 0.5.0 has no `uucore` dep at all
+  (it ships its own diff algorithms). No binary-bloat tax.
+- **Native-builtin collisions**: none. Neither `cmp` nor `diff` exist in
+  `brush-builtins/`.
+- **API audit — partial public exposure**:
+  - `cmp` is fully exposed via the lib:
+    `diffutilslib::cmp::main(opts: Peekable<ArgsOs>) -> ExitCode` ✅
+  - `diff` is **NOT** exposed via the lib. `src/lib.rs` declares
+    `pub mod cmp;` but is missing `pub mod diff;`. `src/diff.rs` is
+    binary-only — only `src/main.rs` can call `diff::main`. ❌
+  - However, every function `src/diff.rs::main` calls IS publicly
+    exposed via the lib (`params::parse_params`, `utils::*`,
+    `normal_diff::diff`, `unified_diff::diff`, `context_diff::diff`,
+    `ed_diff::diff`, `side_diff::diff`). The missing piece is just a
+    one-line `pub mod diff;` upstream.
 
-**High-value targets**: `cmp` (used in scripts to compare files;
-0-or-1 exit semantics, simple); `diff` (universal). `diff3`/`sdiff` are
-nice-to-have.
+### Why deferred
 
-**Effort**: typically smaller than Cycle 2 because diffutils is a more
-focused upstream — but pre-flight may reveal another API divergence.
+Three options were on the table:
+- (A) Ship `cmp` only.
+- (B) Ship `cmp` + `diff` via a vendored ~80-line copy of `src/diff.rs::main`
+  in `brush-bundled-extras`, calling diffutils' public sub-modules.
+- (C) Wait for upstream to expose `pub mod diff;`.
 
-### Do / Check / Act
+Decision (2026-04-25): **(C) wait**. Vendoring upstream code, even small
+and license-compatible (MIT/Apache → MIT), creates a maintenance burden
+that compounds across cycles — Cycle 4 (procps) and Cycle 5
+(grep/sed/awk) will likely face the same shape of partial-API issue, and
+"vendor it" must not become the default escape hatch. Holding the line
+on "consume upstream as-published" keeps the fork's surface area honest.
+
+### Unblock condition
+
+Reopen this cycle when **either**:
+1. uutils/diffutils ships a release with `pub mod diff;` in `src/lib.rs`
+   (one-line upstream fix). Or
+2. uutils/diffutils ships a release that includes `diff3` and/or `sdiff`,
+   making the cycle's payoff large enough to justify a vendor step
+   (re-evaluate cost/benefit at that point).
+
+### Optional proactive work (out of scope unless user authorizes)
+
+A 1-line upstream PR adding `pub mod diff;` to
+[`uutils/diffutils/src/lib.rs`](https://github.com/uutils/diffutils/blob/v0.5.0/src/lib.rs)
+would unblock this cycle for everyone (not just brush). Filing it is
+not in this cycle's scope but is the lowest-cost path to unblocking.
+Brief rationale to use in the PR: "Expose `diff::main` so library
+consumers can re-use the CLI dispatcher rather than reimplement it.
+Already exposed: `cmp::main`."
+
+### Definition of Done (when reopened)
 
 1. Add `diffutils = "..."` dep to `brush-bundled-extras/Cargo.toml`.
-2. Per-utility adapter functions in lib.rs.
+2. Per-utility adapter functions in lib.rs (`cmp_adapter`, then
+   `diff_adapter` once unblocked).
 3. New feature flag `experimental-bundled-extras-diffutils` on
    `brush-shell` (sub of `experimental-bundled-extras`).
 4. Smoke tests + CHANGELOG.
@@ -741,11 +784,12 @@ For Cycle 2:
 - [x] CHANGELOG entry under Unreleased / Features. *(commit `5afebb0`)*
 - [ ] Known limits documented but not fixed: findutils EPIPE panic on Windows (upstream bug); xargs/find-exec can't see shell builtins (inherent fork/exec behavior); argv lossy on non-UTF-8.
 
-For Cycle 3:
-- [ ] Pre-flight: confirm uutils/diffutils published version, lib API, uucore pin.
-- [ ] Add `diffutils` dep + per-utility adapters to `brush-bundled-extras` (same crate).
-- [ ] `experimental-bundled-extras-diffutils` feature on `brush-shell`.
-- [ ] Smoke tests: `diff a b`, `cmp -s a b && echo same`.
+For Cycle 3 — **DEFERRED 2026-04-25**:
+- [x] Pre-flight: diffutils 0.5.0 ships only `cmp` + `diff` (no `diff3`/`sdiff`); zero `uucore` skew; no native-builtin collisions; **`pub mod diff;` is missing from `src/lib.rs`** so `diff::main` is unreachable from a library consumer.
+- [ ] **Blocked on upstream**: cycle stays paused until `uutils/diffutils` either exposes `pub mod diff;` in its lib (one-line fix) or ships `diff3`/`sdiff` (raising the cycle's payoff). See Cycle 3 § "Unblock condition" above.
+- [ ] (When reopened) Add `diffutils` dep + per-utility adapters to `brush-bundled-extras`.
+- [ ] (When reopened) `experimental-bundled-extras-diffutils` feature on `brush-shell`.
+- [ ] (When reopened) Smoke tests: `diff a b`, `cmp -s a b && echo same`.
 
 For Cycle 4:
 - [ ] Pre-flight: confirm uutils/procps published version, lib API, platform binding (likely Linux-mostly).
@@ -772,3 +816,4 @@ For Cycle 5:
 | 2026-04-25 | Cycle 1 (code complete) | Implementation landed. 26 utilities + `[` alias wired into `brush-coreutils-builtins`. Three new feature aggregates (`coreutils.all`+`pathchk`, `coreutils.all-unix`, `coreutils.all-linux`) layered through `brush-shell` as opt-in flags (`-unix-extras`, `-linux-extras`). Windows build verified clean with `experimental-bundled-coreutils`; smoke test on dev binary confirmed `pathchk` and `[` register and execute correctly. Native-builtin collision: `kill` and `[` already exist as brush natives; `register_builtin_if_unset` keeps native winning — bundled registration is a benign no-op for shell-builtin lookup, but bundled-dispatch fast path still routes to uutils. Two phases deferred: 1.5 (YAML smoke tests need test-harness feature plumbing) and 1.6 (xtask drift check, not blocking). | Commit `4f814d3`. |
 | 2026-04-25 | Cycle 2 (pre-flight, architectural pivot) | Cycle 2 pre-flight findings: (1) findutils 0.8.0 ships only `find` + `xargs` as binaries (`locate`/`updatedb` are NOT in 0.8.0; draft plan was wrong). (2) findutils API is divergent from coreutils' `uumain` shape — `find_main(args: &[&str], deps: &StandardDependencies) -> i32` and `xargs_main(args: &[&str]) -> i32`; per-utility adapter functions required. (3) findutils pins `uucore = "0.0.30"` while coreutils pins `uucore = "0.8.0"` — Cargo will pull both (binary-size tax accepted). (4) **Architectural pivot**: the draft plan's "separate crate per upstream repo" default does not earn its ceremony. Its single load-bearing argument (uucore version skew tolerance) is a Cargo *dependency-graph* concern, not a *crate-layout* one — Cargo coexists versions whether they're in one crate or many. Cycles 2/3/4 (and any future grep/sed/awk integration via Cycle 5) will all share **one mega-crate `brush-bundled-extras`** that houses adapter wrappers for every non-uutils-coreutils utility. Pairs naturally with the existing layout (`brush-builtins`, `brush-experimental-builtins`, `brush-coreutils-builtins`). The "Hard Pre-Flight Gate" for uucore-skew has been demoted from a gate to an informational record, since it no longer drives architectural choice. | Pre-flight 2026-04-25 (gh-fetched `findutils@0.8.0/Cargo.toml`, lib.rs, src/find/main.rs, src/xargs/main.rs); user-reflected decision in conversation. |
 | 2026-04-25 | Cycle 2 (code complete) | Implementation landed. New crate `brush-bundled-extras` houses `find_adapter` and `xargs_adapter`. Two new feature flags on `brush-shell` (`experimental-bundled-extras` and `-findutils`). `install_default_providers()` now merges two registries (coreutils + extras) cleanly; no name collisions. Cross-provider pipeline `find . -maxdepth 1 -name "*.toml" \| wc -l` returns 6 on Windows. Three documented upstream limitations: findutils panics on EPIPE on Windows (upstream bug, same family as coreutils EPIPE noise); `xargs`/`find -exec` can't invoke shell builtins (inherent fork/exec behavior); argv lossy on non-UTF-8 OS args. None are blocking — they're upstream behaviors, not adapter bugs, and reflect the cost of bundling pre-existing CLI implementations rather than reimplementing. | Commit `5afebb0`. |
+| 2026-04-25 | Cycle 3 (deferred) | Pre-flight pivoted Cycle 3 from "ship now" to "wait for upstream". Findings: (1) diffutils 0.5.0 ships only `cmp` + `diff` (no `diff3`/`sdiff`; plan was wrong). (2) Zero `uucore` skew. (3) `cmp::main` IS exposed via the lib, but `diff::main` is NOT — `src/lib.rs` is missing `pub mod diff;`, leaving `src/diff.rs` binary-only. (4) The 80-line `diff::main` could be vendored into `brush-bundled-extras` (license-compatible MIT/Apache → MIT) using diffutils' publicly exposed sub-modules (`params`, `utils`, `normal_diff`, `unified_diff`, etc.) — option B. (5) **Decision: option C, defer**. Rationale: vendoring upstream code, even small and license-compatible, creates a maintenance burden that compounds across cycles. Cycle 4 (procps) and Cycle 5 (grep/sed/awk) will likely face partial-API issues too; "vendor it" must not become the default escape hatch. Holding the line on "consume upstream as-published" keeps the fork's surface area honest. Unblock when upstream ships `pub mod diff;` (1-line fix) or `diff3`/`sdiff` (raises payoff). Optional path: file the upstream PR; not in this cycle's scope. | Pre-flight 2026-04-25 (gh-fetched `diffutils@v0.5.0/Cargo.toml`, `lib.rs`, `main.rs`, `cmp.rs`, `diff.rs`); user-selected option C in conversation. |
