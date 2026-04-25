@@ -101,16 +101,18 @@ This fork lives at [`slicingmelon/brush`](https://github.com/slicingmelon/brush)
 
 > ℹ️ **Two binaries are produced.** Every install of this fork deposits both `brush` *and* `bash` (`brush.exe` / `bash.exe` on Windows) into `~/.cargo/bin/`. The `bash` binary is the same shell — it simply identifies itself as `bash (brush)` in version banners. This lets brush act as a drop-in Git-Bash replacement without any manual rename step.
 
-**Recommended per-platform install (everything bundled — coreutils + Unix/Linux extras + findutils):**
+**Recommended per-platform install (everything bundled — coreutils + Unix/Linux extras + findutils + `sed` + `awk` + `grep`):**
+
+> ⚠️ **Toolchain requirement**: the recommended commands below pull `fastgrep` (the bundled `grep`), which has `rust-version = "1.92"`. You need **rustc ≥ 1.92** for these commands to compile. The brush workspace itself stays at MSRV 1.88.0; only the optional fastgrep-backed `grep` flag carries the bumped requirement. If you're on rustc 1.88–1.91, see the "without grep" alternates further down.
 
 ```bash
-# Linux (full Unix+Linux extras + findutils — id, stat, timeout, chmod, chown, find, xargs, ...)
+# Linux (full Unix+Linux extras + findutils + sed + awk + grep)
 cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force --features experimental-builtins,experimental-bundled-coreutils-linux-extras,experimental-bundled-extras
 
-# macOS (Unix extras + findutils — same as Linux minus stdbuf/chcon/runcon)
+# macOS (Unix extras + findutils + sed + awk + grep — same as Linux minus stdbuf/chcon/runcon)
 cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force --features experimental-builtins,experimental-bundled-coreutils-unix-extras,experimental-bundled-extras
 
-# Windows (cross-platform coreutils only — uutils gates id/chmod/etc to cfg(unix); fall through to PATH for those) + findutils
+# Windows (cross-platform coreutils only + findutils + sed + awk + grep — uutils gates id/chmod/etc to cfg(unix); fall through to PATH for those)
 cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force --features experimental-builtins,experimental-bundled-coreutils,experimental-bundled-extras
 ```
 
@@ -121,6 +123,15 @@ git clone https://github.com/slicingmelon/brush
 cargo install --locked --path brush/brush-shell --force --features experimental-builtins,experimental-bundled-coreutils,experimental-bundled-extras
 ```
 
+**Alternate install for rustc 1.88–1.91 (no `grep`)** — replaces the umbrella `experimental-bundled-extras` with the per-utility flags so fastgrep's MSRV bump doesn't apply:
+
+```bash
+# Pick the matching coreutils flag for your platform; this example is Linux.
+cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force --features experimental-builtins,experimental-bundled-coreutils-linux-extras,experimental-bundled-extras-findutils,experimental-bundled-extras-uutils-sed,experimental-bundled-extras-awk-rs
+```
+
+You'll get `find`/`xargs`/`sed`/`awk` from this set, and `grep` falls through to whatever's on `PATH` (Git Bash MSYS2 ships one on Windows; native on Linux/macOS).
+
 **Plain install (no experimental features — minimal shell, no bundled utilities):**
 
 ```bash
@@ -129,20 +140,24 @@ cargo install --locked --git https://github.com/slicingmelon/brush brush-shell
 
 **What each feature flag enables:**
 
-| Flag                                              | What it bundles                                                                                                                                           | Platforms |
-|---------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|
-| `experimental-builtins`                           | Extra native shell builtins (e.g. `save`)                                                                                                                 | all       |
-| `experimental-bundled-coreutils`                  | uutils/coreutils — every utility that builds on Tier-1 targets (cross-platform set, ~82 utilities including `cat`, `ls`, `head`, `tail`, `wc`, `sort`, ...)| all       |
-| `experimental-bundled-coreutils-unix-extras`      | Adds Unix-only utilities on top: `id`, `groups`, `stat`, `timeout`, `install`, `chmod`, `chown`, `chgrp`, `chroot`, `logname`, `tty`, `mkfifo`, `mknod`, `nice`, `nohup`, `stty`, `kill`, `pinky`, `uptime`, `users`, `who`, `hostid` | Unix only |
-| `experimental-bundled-coreutils-linux-extras`     | Adds Linux-only utilities on top of `-unix-extras`: `stdbuf`, `chcon`, `runcon`                                                                           | Linux only|
-| `experimental-bundled-extras`                     | Non-coreutils utilities via adapter wrappers — currently `find` and `xargs` from `uutils/findutils` (more upstreams arriving in future cycles)            | all       |
-| `experimental` *(umbrella)*                       | Convenience meta-feature: `experimental-builtins` + `experimental-bundled-coreutils` + `experimental-load` + `experimental-parser`                        | all       |
+| Flag                                              | What it bundles                                                                                                                                           | Platforms | MSRV  |
+|---------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|-------|
+| `experimental-builtins`                           | Extra native shell builtins (e.g. `save`)                                                                                                                 | all       | 1.88  |
+| `experimental-bundled-coreutils`                  | uutils/coreutils — every utility that builds on Tier-1 targets (cross-platform set, ~82 utilities including `cat`, `ls`, `head`, `tail`, `wc`, `sort`, ...)| all       | 1.88  |
+| `experimental-bundled-coreutils-unix-extras`      | Adds Unix-only utilities on top: `id`, `groups`, `stat`, `timeout`, `install`, `chmod`, `chown`, `chgrp`, `chroot`, `logname`, `tty`, `mkfifo`, `mknod`, `nice`, `nohup`, `stty`, `kill`, `pinky`, `uptime`, `users`, `who`, `hostid` | Unix only | 1.88  |
+| `experimental-bundled-coreutils-linux-extras`     | Adds Linux-only utilities on top of `-unix-extras`: `stdbuf`, `chcon`, `runcon`                                                                           | Linux only| 1.88  |
+| `experimental-bundled-extras` *(umbrella)*        | Non-coreutils utilities via adapter wrappers. **Now includes everything below transitively** — `find`/`xargs`, `sed`, `awk`, and `grep`/`fastgrep`. Inherits fastgrep's MSRV bump.| all  | **1.92** |
+| `experimental-bundled-extras-findutils`           | `find` and `xargs` from `uutils/findutils@0.8.0`                                                                                                          | all       | 1.88  |
+| `experimental-bundled-extras-uutils-sed`          | `sed` from `uutils/sed@0.1.1` (Cycle 0a of `posixutils-rs-integration.md`)                                                                                | all       | 1.88  |
+| `experimental-bundled-extras-awk-rs`              | `awk` from `pegasusheavy/awk-rs@0.1.0` — 100 % POSIX claim, gawk extensions, ~1.6× gawk on 100k-line sums (Cycle 0c-revised)                              | all       | 1.85  |
+| `experimental-bundled-extras-fastgrep`            | `grep` + `fastgrep` aliases from `awnion/fastgrep@0.1.8` — drop-in GNU grep replacement, 2–12× faster, parallel + trigram index (Cycle 0b-revised). Three intentional behavioral deviations from GNU grep — see `CHANGELOG.FORK.md`. | all  | **1.92** |
+| `experimental` *(umbrella)*                       | Convenience meta-feature: `experimental-builtins` + `experimental-bundled-coreutils` + `experimental-load` + `experimental-parser`                        | all       | 1.88  |
 
 **Verify both binaries:**
 
 ```bash
-brush --version    # → brush version 0.3.1 (...)
-bash  --version    # → bash (brush) version 0.3.1 (...)
+brush --version    # → brush version 0.3.4 (...)
+bash  --version    # → bash (brush) version 0.3.4 (...)
 ```
 
 **Uninstall:**
@@ -151,7 +166,7 @@ bash  --version    # → bash (brush) version 0.3.1 (...)
 cargo uninstall brush-shell
 ```
 
-See [`CHANGELOG.FORK.md`](./CHANGELOG.FORK.md) for the full v0.3.1 release notes and per-component version bumps.
+See [`CHANGELOG.FORK.md`](./CHANGELOG.FORK.md) for the full release notes and per-component version bumps. The Unreleased section covers the Cycle 0 cohort (sed/awk/grep gap-fillers) on top of the v0.3.1 base.
 
 
 <details>
