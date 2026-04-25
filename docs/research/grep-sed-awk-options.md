@@ -1,5 +1,34 @@
 # grep / sed / awk — Rust embedding options for brush
 
+> **Status**: ⚠️ **SUPERSEDED 2026-04-25 (evening)** — see
+> [`../planning/posixutils-rs-integration.md`](../planning/posixutils-rs-integration.md)
+> §"Alternative sources reviewed" and the "Start here" section there.
+>
+> The conclusions in this document (defer grep/awk indefinitely; track
+> uutils/sed for v0.2.0+) were drawn from a first-pass survey of well-known
+> Rust grep/awk projects (ripgrep, frawk). A second-pass sweep of cloned
+> upstream sources at `C:\Tools\brush-shell-resources\` discovered three
+> candidates that change the picture entirely:
+>
+> | Utility | Old conclusion (this doc) | New conclusion ([planning doc](../planning/posixutils-rs-integration.md)) |
+> |---|---|---|
+> | `sed`  | Track upstream, re-evaluate at v0.2.0+ | **Ship now** via crates.io dep on `uutils/sed = "0.1.1"` (Cycle 0a). MSRV 1.88 = brush 1.88. |
+> | `awk`  | Defer indefinitely (no usable Rust port; frawk is "Awk-like") | **Ship now** via crates.io dep on `pegasusheavy/awk-rs = "0.1.0"` (Cycle 0c-revised). 100% POSIX claim, 639 tests, CI tests Windows. MSRV 1.85 < brush 1.88. |
+> | `grep` | Defer indefinitely (no embeddable Rust grep) | **Ship now** via crates.io dep on `awnion/fastgrep = "0.1.8"` (Cycle 0b-revised). "Drop-in replacement for GNU grep", 2–12× faster. MSRV 1.92 — feature-conditional MSRV bump required, plus Windows smoke gate (fastgrep CI doesn't cover Windows). |
+>
+> The methodology in this doc was sound — it just didn't include the right
+> repos. Future research passes should also check community projects (not
+> just the well-known ones), GitHub-search by keyword + recent activity,
+> and any candidates the user surfaces. Specifically:
+> [`pegasusheavy/awk-rs`](https://github.com/pegasusheavy/awk-rs) and
+> [`awnion/fastgrep`](https://github.com/awnion/fastgrep) were both v0.1
+> at the time of the first-pass survey but were not in the result set.
+>
+> **Action for an implementer**: read this doc only for historical context
+> (why grep/awk were initially deferred). Then go to the planning doc for
+> the actual cycle-0 work. The "Start here" section at the top of the
+> planning doc is the entry point.
+
 > **Status**: research · **Created**: 2026-04-25 · **Owner**: @slicingmelon
 > **Cycle**: [`coreutils-coverage-expansion.md`](../planning/coreutils-coverage-expansion.md) Cycle 5
 > **Output**: this document. **No code change.**
