@@ -7,6 +7,31 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 
 ### 🐛 Bug Fixes
 
+#### `fix(windows): suppress console-window flash on child process spawn`
+
+When brush is launched by a host that has no attached console (Claude Code's
+Bash tool, editor terminals, automation harnesses), every child process it
+spawns triggered a brief dark console window: Windows allocates a fresh
+console for a console-subsystem child whose parent has none. The flash was
+especially visible with bundled coreutils enabled, since each `cat`, `ls`,
+`tr`, etc. re-invokes brush as a shim child — every line of output, multiple
+flashes.
+
+Fix: pass `CREATE_NO_WINDOW` (`0x0800_0000`) via `creation_flags` on the
+single Windows spawn point in `brush-core/src/sys/tokio_process.rs`. stdio
+handles still inherit through `STARTUPINFO`, so pipelines, redirections, and
+captured output are unaffected — only the console *window* allocation is
+suppressed. The flag is gated on `cfg(windows)`; Unix is untouched.
+
+A future enhancement may detect interactive child invocations (e.g. `vim`,
+`less`) and skip the flag for those, but for non-interactive shell-tool
+usage — which is what brush-as-Git-Bash-replacement is mainly for —
+unconditional suppression is the right default.
+
+**Files changed**
+
+- `brush-core/src/sys/tokio_process.rs` — apply `CREATE_NO_WINDOW` on Windows
+
 #### `fix(windows): translate MSYS / Git-Bash style paths in `absolute_path``
 
 When brush is used as the shell behind tools that hand it MSYS / Git-Bash
