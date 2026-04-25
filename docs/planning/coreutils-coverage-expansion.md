@@ -92,50 +92,79 @@ Files-and-text: `arch`, `base32`, `base64`, `basename`, `basenc`, `cat`,
 
 #### 2b. What's missing from uutils/coreutils 0.8.0 (already a dep, just not feature-flagged)
 
-> ⚠️ **Provisional.** This table was assembled from prior knowledge of GNU coreutils
-> + uutils, *not* from the actual 0.8.0 manifest. **Phase 0** (below) verifies it
-> against upstream before any code change. Effort estimates and feature lists
-> downstream of this table may shift after verification — flagged as a known
-> pre-plan unknown rather than discovered mid-implementation.
+> ✅ **Verified 2026-04-25 by Phase 0.** Reconciled against
+> [`uutils/coreutils@0.8.0/Cargo.toml`](https://github.com/uutils/coreutils/blob/0.8.0/Cargo.toml).
+> Source of truth is the `[dependencies]` block (104 utility crates) and the
+> feature-set definitions `feat_common_core`, `feat_Tier1`,
+> `feat_require_unix_core`, `feat_require_unix_utmpx`,
+> `feat_require_unix_hostid`, `feat_require_selinux`. Decision Log records
+> what changed from the provisional draft.
 
-Suspected-missing (each would require a `coreutils.<name>` feature + adapter, *if confirmed by Phase 0*):
+The reconciled to-add list — every one is a real `uu_<name>` dependency in
+0.8.0 unless noted:
 
-| Utility | POSIX class | Windows-portable? | Notes |
+| Utility | uutils feature set | Windows-portable? | Notes |
 |---|---|---|---|
-| `id` | user info | yes | high-value; user explicitly cited |
-| `groups` | user info | yes | natural pair with `id` |
-| `logname` | user info | unix-only | uutils' own platform gate likely |
-| `tty` | user info | unix-only | needs `/dev/tty` notion |
-| `who` | user info | unix-only | utmp |
-| `users` | user info | unix-only | utmp |
-| `pinky` | user info | unix-only | utmp |
-| `whoami` | user info | yes | **already bundled** — no action |
-| `hostname` | system | yes | **already bundled** — no action |
-| `stat` | file info | yes | high-value |
-| `chmod` | perms | unix-only on Windows it's a no-op-ish; uutils gates |
-| `chown` | perms | unix-only |  |
-| `chgrp` | perms | unix-only |  |
-| `chcon` | selinux | linux-only | low priority for our user base |
-| `runcon` | selinux | linux-only | low priority |
-| `chroot` | unix | unix-only | rarely useful in shell |
-| `install` | files | yes | useful for build scripts |
-| `mkfifo` | files | unix-only |  |
-| `mknod` | files | unix-only |  |
-| `nice` | proc | unix-only |  |
-| `nohup` | proc | unix-only |  |
-| `timeout` | proc | yes | **high-value**; common in CI scripts |
-| `kill` | proc | yes | **already a brush native builtin** — skip (let native win) |
-| `pathchk` | misc | yes | rarely used but cheap |
-| `stdbuf` | proc | linux-only | uses `LD_PRELOAD` mechanism |
-| `stty` | terminal | unix-only |  |
-| `cksum` | checksum | yes | **already bundled** |
-| `hashsum` | checksum | yes | uutils combined-hash dispatcher; cheap |
+| `pathchk` | `feat_common_core` | yes | Tier1 cross-platform; only Tier1 utility we don't have. Cheap to add. |
+| `id` | `feat_require_unix_core` | unix-only | high-value; user explicitly cited |
+| `groups` | `feat_require_unix_core` | unix-only | natural pair with `id` |
+| `stat` | `feat_require_unix_core` | unix-only | high-value |
+| `timeout` | `feat_require_unix_core` | unix-only | **high-value**; common in CI scripts |
+| `install` | `feat_require_unix_core` | unix-only | useful for build scripts |
+| `chmod` | `feat_require_unix_core` | unix-only |  |
+| `chown` | `feat_require_unix_core` | unix-only |  |
+| `chgrp` | `feat_require_unix_core` | unix-only |  |
+| `chroot` | `feat_require_unix_core` | unix-only | rarely useful in shell |
+| `logname` | `feat_require_unix_core` | unix-only |  |
+| `tty` | `feat_require_unix_core` | unix-only | needs `/dev/tty` notion |
+| `mkfifo` | `feat_require_unix_core` | unix-only |  |
+| `mknod` | `feat_require_unix_core` | unix-only |  |
+| `nice` | `feat_require_unix_core` | unix-only |  |
+| `nohup` | `feat_require_unix_core` | unix-only |  |
+| `stty` | `feat_require_unix_core` | unix-only | terminal control |
+| `kill` | `feat_require_unix_core` | unix-only | **already a brush native builtin** — register-shim is no-op (`register_builtin_if_unset` keeps native winning); track as a Pre-Flight collision per plan §Pre-Flight Gates |
+| `stdbuf` | `feat_require_unix` (extra) | linux-only | uses `LD_PRELOAD` mechanism; `cfg(target_os = "linux")` rather than just `cfg(unix)` |
+| `pinky` | `feat_require_unix_utmpx` | unix-only | utmp/utmpx |
+| `uptime` | `feat_require_unix_utmpx` | unix-only | utmp/utmpx — **note**: also exists in uutils/procps; coreutils version covers Unix today, so Cycle 4 procps integration may revisit naming |
+| `users` | `feat_require_unix_utmpx` | unix-only | utmp/utmpx |
+| `who` | `feat_require_unix_utmpx` | unix-only | utmp/utmpx |
+| `hostid` | `feat_require_unix_hostid` | unix-only (subset) | only some Unixes provide `gethostid` in libc; further-narrowing `cfg` may be needed |
+| `chcon` | `feat_require_selinux` | linux-only | SELinux; defer (low priority) |
+| `runcon` | `feat_require_selinux` | linux-only | SELinux; defer (low priority) |
 
-**Action set for Cycle 1**: add `id`, `groups`, `stat`, `timeout`, `install`,
-`pathchk`, `hashsum` unconditionally; add `chmod`, `chown`, `chgrp`,
-`logname`, `nice`, `nohup`, `tty`, `who`, `users`, `pinky`, `mkfifo`,
-`mknod`, `stty`, `chroot`, `chcon`, `runcon`, `stdbuf` as `cfg(unix)`-gated
-features. Skip `kill` (native).
+**Already bundled — no action**: `whoami`, `hostname`, `cksum`, `b2sum`,
+`md5sum`, `sha*sum`, plus the full `feat_common_core` + Tier1 set
+(82 utilities total; see §2a).
+
+**Removed from earlier provisional draft** (verified non-existent or
+non-applicable):
+
+- `hashsum` — **not a separate `uu_*` dependency** in 0.8.0. uutils has a
+  binary-alias mechanism that exposes one binary called `hashsum` from the
+  multi-call `coreutils` driver, but there is no `uu_hashsum` crate to
+  register here. Drop from the to-add set.
+- `[` (test alias) — also not a separate dependency. Exposing `[` requires
+  a manual second `register!` line that calls `uu_test::uumain` under the
+  name `"["`. Tracked as a Cycle 1 sub-task: register `[` alongside `test`
+  in `bundled_commands()`.
+
+**Action set for Cycle 1**:
+- **Cross-platform addition (1)**: `pathchk`.
+- **`cfg(unix)`-gated additions (17)**: `id`, `groups`, `stat`, `timeout`,
+  `install`, `chmod`, `chown`, `chgrp`, `chroot`, `logname`, `tty`,
+  `mkfifo`, `mknod`, `nice`, `nohup`, `stty`, `kill` *(register the shim
+  but expect `register_builtin_if_unset` to keep brush's native `kill`
+  winning — collision documented per plan)*.
+- **`cfg(target_os = "linux")`-gated additions (3)**: `stdbuf`, `chcon`,
+  `runcon`.
+- **`cfg(unix)`-gated, utmpx-required (4)**: `pinky`, `uptime`, `users`,
+  `who`. uutils' `uucore::utmpx` feature must be enabled when these are
+  built.
+- **`cfg(unix)`-gated, hostid-required (1)**: `hostid`. May need narrower
+  `cfg` than `unix`; see uutils' own platform notes.
+- **Sub-task**: register `[` as an alias of `test`.
+
+**Total additions for Cycle 1: 26 utilities + 1 alias.**
 
 #### 2c. What needs sibling uutils crates
 
@@ -617,9 +646,9 @@ See existing examples at
 ## Definition of Done
 
 For Phase 0 (gate for Cycle 1):
-- [ ] Upstream uutils/coreutils 0.8.0 manifest fetched.
-- [ ] §2b reconciled in place; Decision Log records what changed.
-- [ ] `[` (test alias) registration mechanism confirmed.
+- [x] Upstream uutils/coreutils 0.8.0 manifest fetched. *(2026-04-25 via `gh api repos/uutils/coreutils/contents/Cargo.toml?ref=0.8.0`)*
+- [x] §2b reconciled in place; Decision Log records what changed.
+- [x] `[` (test alias) registration mechanism confirmed: requires manual second `register!` line under name `"["` calling `uu_test::uumain`; not a separate dep.
 
 For Cycle 1:
 - [ ] All cross-platform additions enabled; Unix-only ones `cfg(unix)`-gated.
@@ -661,3 +690,4 @@ For Cycle 5:
 |---|---|---|---|
 | 2026-04-25 | (planning, draft) | Plan drafted using PDCA. Initial order: 1 → 3 → 2 → 4 → 5. Initial separate-crate-per-sibling-repo default. | This doc, pre-amendment. |
 | 2026-04-25 | (planning, reflexion) | Reflexion review scored the draft 3.05/5.0, below the 4.0 threshold. Amendments: (1) reorder to 1 → 2 → 3 → 4 → 5 — find/xargs outranks diff/cmp by user demand and shell-script frequency. (2) Add Phase 0 to verify §2b against upstream before any code change; mark §2b as provisional. (3) Replace hand-wavy "separate crate is cleaner" with a single concrete benefit (uucore version-skew tolerance) plus an explicit fold-vs-separate decision rule keyed off Phase 2 pre-flight. (4) Promote uucore-skew check from Open Question to a hard Pre-Flight gate. (5) Replace fabricated "~7 MB" binary-size claim with a Cycle 1 DoD measurement step. (6) Add native-builtin collision check as a hard Pre-Flight gate. (7) Add YAML smoke-test convention reference. (8) Add composition note with bundled-coreutils-pipelines plan. | Reflexion report 2026-04-25; this doc post-amendment. |
+| 2026-04-25 | Phase 0 (complete) | §2b reconciled against upstream `uutils/coreutils@0.8.0/Cargo.toml`. Findings: (1) `pathchk` confirmed as the only Tier1 cross-platform utility we don't have. (2) `hostid` was missing from the provisional draft — added (Unix-only, `feat_require_unix_hostid`). (3) `hashsum` removed from the to-add set — it is not a separate `uu_*` dependency in 0.8.0; it's a multi-call binary alias produced by uutils' driver, not a registerable utility crate. (4) `[` (test alias) confirmed not a separate dep; requires a manual second `register!` line aliasing `uu_test::uumain`. (5) `uptime` clarified to live in *both* uutils/coreutils (utmpx) and uutils/procps; coreutils version covers Unix today, so Cycle 1 owns it on Unix and Cycle 4 may revisit. (6) `stdbuf` requires `cfg(target_os = "linux")` (LD_PRELOAD-based); separated out from generic `cfg(unix)` set. Cycle 1's final action set: 1 cross-platform utility (`pathchk`), 17 `cfg(unix)` utilities (incl. `kill` as a no-op shim due to native collision), 3 `cfg(target_os = "linux")` utilities (`stdbuf`, `chcon`, `runcon`), 5 utmpx/hostid Unix utilities, plus 1 alias (`[`). 27 entries total. | `tmp-uutils-cargo.toml` (gh-fetched, not committed); §2b post-reconciliation. |
