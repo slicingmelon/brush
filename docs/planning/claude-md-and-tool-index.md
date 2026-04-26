@@ -1,6 +1,6 @@
 # Project memory (CLAUDE.md) + Bundled-Tool Index
 
-> **Status**: in progress · **Created**: 2026-04-26 · **Owner**: @slicingmelon
+> **Status**: ✅ shipped · **Created**: 2026-04-26 · **Owner**: @slicingmelon
 > **Branch**: `docs/claude-md-and-tool-index`
 > **Tracks**: a project-local `.claude/CLAUDE.md` (so future Claude Code
 > sessions get the right context the moment they enter the repo) plus an
@@ -70,16 +70,23 @@ disk.
 1. ✅ Branch `docs/claude-md-and-tool-index` created off
    `claude/hardcore-visvesvaraya-6489be` (the parent worktree branch).
 2. ✅ This planning doc written.
-3. 🔷 Build the tool index by parsing the three Cargo.toml feature lists
-   + the `brush-builtins/src/*.rs` file inventory. Cross-reference with
-   listings of `mingw64\bin` and `usr\bin` (already captured in the
-   conversation as ground truth).
-4. 🔷 Generate `.claude/CLAUDE.md` via the `/init` skill.
-5. 🔷 Audit and revise via `claude-md-improver` skill.
-6. 🔷 Reflexion pass over both deliverables before commit (per user's
-   request that we leverage `reflexion:reflect` on substantive output).
-7. 🔷 Commit on this branch — no merge to main, no PR. User reviews
-   locally, gives the green light, then decides whether to land.
+3. ✅ Tool index built (`docs/reference/bundled-tools-index.md`) by
+   parsing the three Cargo.toml feature lists + the
+   `brush-builtins/src/*.rs` file inventory; gap analysis against
+   `mingw64\bin` and `usr\bin` listings included.
+4. ✅ `.claude/CLAUDE.md` generated via the `/init` skill (lives on
+   disk only — gitignored by the user's global rule, intentionally
+   kept out of the public fork).
+5. ✅ Audited and revised via `claude-md-improver` skill.
+6. ✅ Reflexion pass caught four issues (cross-platform uutils count
+   was 82 → corrected to 83; `egrep`/`fgrep` framing softened from
+   "probable bug" to "deliberate omission"; worktree section in
+   CLAUDE.md removed for hardcoded user path; Windows-vs-Unix
+   masked-builtins count clarified). All fixed before commit.
+7. ✅ Two commits on this branch:
+    - `7da6539` — this planning doc
+    - `078bd5b` — tool index + Git-for-Windows gap analysis +
+      `docs/reference/README.md` link entry
 
 ## Constraints worth recording
 
