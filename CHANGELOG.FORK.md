@@ -4,6 +4,22 @@ Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brus
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 matching upstream's [`CHANGELOG.md`](./CHANGELOG.md).
 
+## [0.3.8] - 2026-04-28
+
+> Per-component version bumps in this release:
+>
+> | Crate                  | Previous | New     | Why                                                                  |
+> |------------------------|----------|---------|----------------------------------------------------------------------|
+> | `brush-bundled-extras` | 0.1.7    | 0.1.8   | Add `id` and `clear` adapters under existing `extras.utils-all`. `id` uses libc on Unix (mirroring uutils' `uu_id`) and `windows-sys` Win32 token API on Windows (where `uu_id` is `cfg(unix)`-gated and unavailable). `clear` is a tiny ANSI-escape print. |
+> | `brush-shell`          | 0.3.7    | 0.3.8   | Dep bump for `brush-bundled-extras 0.1.8`. No new feature flag — the additions ride the existing `experimental-bundled-extras-utils` flag (which is itself part of the umbrella `experimental-bundled-extras`). |
+
+### ✨ Features
+
+- *(extras)* Add `id` to `extras.utils-all` — cross-platform implementation: libc syscalls on Unix (matching uutils' `uu_id` shape), Win32 token API (`OpenProcessToken` / `GetTokenInformation` / `LookupAccountSidW`) on Windows where `uu_id` is `cfg(unix)`-gated. Maps Windows SIDs to faux-uid/gid via the RID. Supports `-u`/`-g`/`-G`/`-n`/`-r` flag matrix.
+- *(extras)* Add `clear` to `extras.utils-all` — tiny in-tree adapter writing `\x1b[H\x1b[2J\x1b[3J` (cursor home + erase screen + erase scrollback). Honored by all modern Windows terminals (Win10+ cmd, Windows Terminal, mintty, ConEmu) and every Unix terminal. uutils 0.8.0 doesn't ship a `clear` crate at all, so this fills a real gap.
+
+Both land **under the existing `extras.utils-all` aggregate** — no new feature flag added (the user-facing flag count was already plenty).
+
 ## [0.3.7] - 2026-04-28
 
 > Per-component version bumps in this release:

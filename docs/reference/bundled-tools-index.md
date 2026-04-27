@@ -189,6 +189,8 @@ Source:
 | `xxd` | in-tree (no deps) | — | `experimental-bundled-extras-utils` | 1.88 |
 | `column` | in-tree (no deps) | — | `experimental-bundled-extras-utils` | 1.88 |
 | `file` | crates.io `infer` | 0.16 | `experimental-bundled-extras-utils` | 1.88 |
+| `id` | in-tree (libc on Unix, `windows-sys` Win32 token API on Windows) | — | `experimental-bundled-extras-utils` | 1.88 |
+| `clear` | in-tree ANSI escape codes (no deps) | — | `experimental-bundled-extras-utils` | 1.88 |
 | `tar` | crates.io `tar` + `flate2` | 0.4 / 1 | `experimental-bundled-extras-compression` | 1.88 |
 | `gzip` / `gunzip` / `gzcat` / `zcat` | crates.io `flate2` | 1 | `experimental-bundled-extras-compression` | 1.88 |
 | `bzip2` / `bunzip2` / `bzcat` | crates.io `bzip2` (uses pure-Rust `libbz2-rs-sys`) | 0.6 | `experimental-bundled-extras-compression` | 1.88 |

@@ -52,6 +52,10 @@ mod xxd_adapter;
 mod column_adapter;
 #[cfg(feature = "extras.file")]
 mod file_adapter;
+#[cfg(feature = "extras.id")]
+mod id_adapter;
+#[cfg(feature = "extras.clear")]
+mod clear_adapter;
 
 #[cfg(feature = "extras.tar")]
 mod tar_adapter;
@@ -146,6 +150,19 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     #[cfg(feature = "extras.file")]
     {
         m.insert("file".to_string(), file_adapter::file_main as BundledFn);
+    }
+    #[cfg(feature = "extras.id")]
+    {
+        // Cross-platform `id` — uutils' uu_id is Unix-only (cfg(unix)),
+        // so on Windows brush had no `id` even with all coreutils flags.
+        // This adapter implements id via libc on Unix and Win32 token
+        // API on Windows. See the post-Cycle 1 follow-up of
+        // `bundled-extras-coverage-expansion.md`.
+        m.insert("id".to_string(), id_adapter::id_main as BundledFn);
+    }
+    #[cfg(feature = "extras.clear")]
+    {
+        m.insert("clear".to_string(), clear_adapter::clear_main as BundledFn);
     }
 
     // Cycle 2 compression family (bundled-extras-coverage-expansion).
