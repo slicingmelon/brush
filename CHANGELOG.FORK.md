@@ -1,11 +1,12 @@
 # Fork Changelog
 
 Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brush).
-Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+matching upstream's [`CHANGELOG.md`](./CHANGELOG.md).
 
-# Unreleased
+## [0.3.7] - 2026-04-28
 
-> Per-component version bumps planned for the next release:
+> Per-component version bumps in this release:
 >
 > | Crate                  | Previous | New     | Why                                                                  |
 > |------------------------|----------|---------|----------------------------------------------------------------------|
@@ -14,6 +15,31 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 > | `brush-shell`          | 0.3.1    | 0.3.7   | New `experimental-bundled-extras-uutils-sed` (Cycle 0a), `experimental-bundled-extras-awk-rs` (Cycle 0c-revised), and `experimental-bundled-extras-fastgrep` (Cycle 0b-revised) feature flags; `bundled.rs` cfg-gate extended to merge the extras registry when only one of them is enabled. The `-fastgrep` flag carries an MSRV requirement of rustc ≥ 1.92 (above the workspace MSRV of 1.88.0) — opt-in only. **0.3.5** adds `experimental-bundled-extras-utils` (Cycle 1 of `bundled-extras-coverage-expansion.md`) — opt-in subset for the five utility quick-wins; no MSRV bump. **0.3.6** adds `experimental-bundled-extras-compression` (Cycle 2) — opt-in subset for the 12 compression utilities; no MSRV bump. **0.3.7** adds `experimental-bundled-extras-ripgrep` (Cycle 3) — registers `rg`/`grep`/`egrep`/`fgrep` from the ripgrep-style adapter; no MSRV bump (the workspace MSRV is sufficient because the bundled adapter uses `regex` + `pcre2` + `ignore` directly rather than the heavier grep-printer trait stack). |
 
 ### ✨ Features
+
+- *(extras)* Ship `rg` / `grep` / `egrep` / `fgrep` via ripgrep-style adapter (`regex` + `pcre2` + `ignore`) — new `experimental-bundled-extras-ripgrep` flag. Headline: `-P` (PCRE2) now works (fastgrep didn't support it). Wins over fastgrep for those four GNU-compat names when both flags enabled (HashMap insertion order); `fastgrep` itself stays registered separately. No MSRV bump. Cycle 3 of [`bundled-extras-coverage-expansion.md`](./docs/planning/bundled-extras-coverage-expansion.md) (commit `2d8422e`).
+- *(extras)* Bundle `tar` + gzip / bzip2 / xz / zip compression family — 12 new commands under `experimental-bundled-extras-compression`. Sources: `tar = "0.4"` + `flate2 = "1"` (tar with `-z`); `flate2` (gzip / gunzip / zcat / gzcat); `bzip2 = "0.6"` with pure-Rust `libbz2-rs-sys` backend (bzip2 / bunzip2 / bzcat); `xz2 = "0.1"` with vendored liblzma (xz / unxz / xzcat); `zip = "5"` (deflate+bzip2+time features only — unzip / zipinfo). Archive creation via `unzip` is **not** included. Cycle 2 (commit `06f0366`).
+- *(extras)* Bundle `which` / `tree` / `xxd` / `column` / `file` utility quick-wins under `experimental-bundled-extras-utils`. Sources: `which = "6"` (which); `walkdir = "2"` (in-tree CLI matching GNU ASCII output); pure in-tree (xxd canonical/postscript/C-include/reverse, column -t); `infer = "0.16"` + UTF-8 heuristic (file). Cycle 1 (commit `b28d0e3`).
+- *(extras)* Add `egrep` / `fgrep` aliases to fastgrep adapter — `-E` / `-F` pre-pended after `argv[0]` mirroring GNU semantics. Closes the registration gap from §E of `bundled-tools-index.md`. Drive-by clippy 1.95 fixes bundled. Cycle 0a (commit `0ef674b`).
+- *(extras)* Bundle `grep` + `fastgrep` aliases via `awnion/fastgrep = "0.1.8"` — new `experimental-bundled-extras-fastgrep` flag with per-flag MSRV requirement of rustc ≥ 1.92 (workspace stays at 1.88.0). Cycle 0b-revised PR 2 of [`posixutils-rs-integration.md`](./docs/planning/posixutils-rs-integration.md) (commit `2b89425`).
+- *(extras)* Bundle `awk` via `pegasusheavy/awk-rs = "0.1.0"` — new `experimental-bundled-extras-awk-rs` flag. CI tests Windows in upstream. Cycle 0c-revised (commit `8898b3a`).
+- *(extras)* Bundle `sed` via `uutils/sed = "0.1.1"` — new `experimental-bundled-extras-uutils-sed` flag. uucore 0.8.0 matches `brush-coreutils-builtins`, no dep skew. Cycle 0a (commit `768a671`).
+
+### 🐛 Bug Fixes
+
+- *(windows)* Only suppress `CREATE_NO_WINDOW` when brush has no attached console — fix v0.3.1 regression where bundled coreutils produced no output when brush ran interactively from a real Windows console (cmd / pwsh / Windows Terminal). Caches `GetConsoleWindow() == NULL` in a `OnceLock<bool>`.
+
+### 📋 Process / Decisions
+
+- Cycle 0b-revised gates record (commit `bd887e2`) — MSRV gate + Windows-build smoke gate both passed; option (b) "feature-conditional MSRV" chosen for `experimental-bundled-extras-fastgrep`.
+- New planning doc [`bundled-extras-coverage-expansion.md`](./docs/planning/bundled-extras-coverage-expansion.md) — Cycles 0a / 1 / 2 / 3 (this release) + Cycle 4 deferred (id Win32 port, iconv, ps).
+
+### 📚 Documentation
+
+- New reference doc [`docs/reference/bundled-tools-index.md`](./docs/reference/bundled-tools-index.md) (commit `078bd5b`) — full inventory of every command this fork bundles + gap analysis vs Git-for-Windows; sections updated as Cycles 0a / 1 / 2 / 3 landed.
+- Mark [`docs/planning/claude-md-and-tool-index.md`](./docs/planning/claude-md-and-tool-index.md) plan as shipped (commit `2fdc337`).
+
+<details>
+<summary>Verbose detail (per-cycle context, smoke checks, behavioral trade-offs)</summary>
 
 #### `feat(extras): ship rg / grep / egrep / fgrep via ripgrep-style adapter (regex + pcre2 + ignore)`
 
@@ -654,7 +680,9 @@ output from a real console" — are now satisfied.
 
 - `brush-core/src/sys/tokio_process.rs` — `host_has_attached_console()` helper + conditional flag
 
-# v0.3.1 - 2026-04-25
+</details>
+
+## [0.3.1] - 2026-04-25
 
 > Per-component version bumps in this release:
 >
