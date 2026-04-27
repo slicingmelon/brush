@@ -10,10 +10,95 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 > | Crate                  | Previous | New     | Why                                                                  |
 > |------------------------|----------|---------|----------------------------------------------------------------------|
 > | `brush-core`           | 0.4.1    | 0.4.2   | Conditional `CREATE_NO_WINDOW` — fix a v0.3.1 regression where bundled coreutils produced no output when brush ran interactively from a real Windows console. |
-> | `brush-bundled-extras` | 0.1.0    | 0.1.5   | Cycle 0a — wire `uutils/sed = "0.1.1"` via `sed_adapter` (`extras.sed` / `extras.uutils-sed-all` features). Cycle 0c-revised — wire `pegasusheavy/awk-rs = "0.1.0"` via `awk_adapter` (`extras.awk` / `extras.awk-rs-all` features). Cycle 0b-revised — wire `awnion/fastgrep = "0.1.8"` via `grep_adapter::grep_main` registered as both `grep` and `fastgrep` (`extras.grep` / `extras.fastgrep-all` features). All per `posixutils-rs-integration.md`. **0.1.4** adds `egrep` / `fgrep` aliases dispatching to the same fastgrep adapter with `-E` / `-F` pre-pended (Cycle 0a of `bundled-extras-coverage-expansion.md`). **0.1.5** adds five utility quick-wins under a new `extras.utils-all` aggregate: `which` (via `which` crate), `tree` (in-tree using `walkdir`), `xxd` (in-tree, no deps), `column` (in-tree, no deps), `file` (via `infer` crate). Cycle 1 of `bundled-extras-coverage-expansion.md`. |
-> | `brush-shell`          | 0.3.1    | 0.3.5   | New `experimental-bundled-extras-uutils-sed` (Cycle 0a), `experimental-bundled-extras-awk-rs` (Cycle 0c-revised), and `experimental-bundled-extras-fastgrep` (Cycle 0b-revised) feature flags; `bundled.rs` cfg-gate extended to merge the extras registry when only one of them is enabled. The `-fastgrep` flag carries an MSRV requirement of rustc ≥ 1.92 (above the workspace MSRV of 1.88.0) — opt-in only. **0.3.5** adds `experimental-bundled-extras-utils` (Cycle 1 of `bundled-extras-coverage-expansion.md`) — opt-in subset for the five utility quick-wins; no MSRV bump. |
+> | `brush-bundled-extras` | 0.1.0    | 0.1.6   | Cycle 0a — wire `uutils/sed = "0.1.1"` via `sed_adapter` (`extras.sed` / `extras.uutils-sed-all` features). Cycle 0c-revised — wire `pegasusheavy/awk-rs = "0.1.0"` via `awk_adapter` (`extras.awk` / `extras.awk-rs-all` features). Cycle 0b-revised — wire `awnion/fastgrep = "0.1.8"` via `grep_adapter::grep_main` registered as both `grep` and `fastgrep` (`extras.grep` / `extras.fastgrep-all` features). All per `posixutils-rs-integration.md`. **0.1.4** adds `egrep` / `fgrep` aliases dispatching to the same fastgrep adapter with `-E` / `-F` pre-pended (Cycle 0a of `bundled-extras-coverage-expansion.md`). **0.1.5** adds five utility quick-wins under a new `extras.utils-all` aggregate: `which` (via `which` crate), `tree` (in-tree using `walkdir`), `xxd` (in-tree, no deps), `column` (in-tree, no deps), `file` (via `infer` crate). Cycle 1 of `bundled-extras-coverage-expansion.md`. **0.1.6** adds the compression family under a new `extras.compression-all` aggregate: `tar` (via `tar` + `flate2`), `gzip`/`gunzip`/`zcat`/`gzcat` (via `flate2`), `bzip2`/`bunzip2`/`bzcat` (via `bzip2`), `xz`/`unxz`/`xzcat` (via `xz2`), `unzip`/`zipinfo` (via `zip`). Cycle 2 of `bundled-extras-coverage-expansion.md`. |
+> | `brush-shell`          | 0.3.1    | 0.3.6   | New `experimental-bundled-extras-uutils-sed` (Cycle 0a), `experimental-bundled-extras-awk-rs` (Cycle 0c-revised), and `experimental-bundled-extras-fastgrep` (Cycle 0b-revised) feature flags; `bundled.rs` cfg-gate extended to merge the extras registry when only one of them is enabled. The `-fastgrep` flag carries an MSRV requirement of rustc ≥ 1.92 (above the workspace MSRV of 1.88.0) — opt-in only. **0.3.5** adds `experimental-bundled-extras-utils` (Cycle 1 of `bundled-extras-coverage-expansion.md`) — opt-in subset for the five utility quick-wins; no MSRV bump. **0.3.6** adds `experimental-bundled-extras-compression` (Cycle 2 of `bundled-extras-coverage-expansion.md`) — opt-in subset for the 12 compression utilities; no MSRV bump. |
 
 ### ✨ Features
+
+#### `feat(extras): bundle tar + gzip / bzip2 / xz / zip compression family`
+
+Cycle 2 of [`docs/planning/bundled-extras-coverage-expansion.md`](./docs/planning/bundled-extras-coverage-expansion.md).
+Closes the loudest compression gaps from
+[`docs/reference/bundled-tools-index.md`](./docs/reference/bundled-tools-index.md)
+§E. `tar` was specifically called out as the "loudest single absence";
+the gzip / bzip2 / xz / zip families round out the compression set
+agents need for `curl | tar xz`, `apt-get`-style download/extract
+flows, and dotfile installers.
+
+| Utility cluster | Source | Sub-utilities |
+|---|---|---|
+| `tar` | crates.io [`tar = "0.4"`](https://crates.io/crates/tar) + `flate2` for `-z` | `tar` |
+| gzip | crates.io [`flate2 = "1"`](https://crates.io/crates/flate2) (pure-Rust default backend `miniz_oxide`) | `gzip`, `gunzip`, `zcat`, `gzcat` |
+| bzip2 | crates.io [`bzip2 = "0.6"`](https://crates.io/crates/bzip2) (uses pure-Rust `libbz2-rs-sys`) | `bzip2`, `bunzip2`, `bzcat` |
+| xz | crates.io [`xz2 = "0.1"`](https://crates.io/crates/xz2) (links liblzma via `lzma-sys`) | `xz`, `unxz`, `xzcat` |
+| zip | crates.io [`zip = "5"`](https://crates.io/crates/zip), default-features = false, features = `["deflate", "bzip2", "time"]` | `unzip`, `zipinfo` |
+
+12 new bundled command names in total. All Windows-friendly. None of
+the new deps require a rustc bump beyond the workspace MSRV (1.88.0).
+The bzip2 path now uses the pure-Rust `libbz2-rs-sys` backend (no MSVC
+C compilation needed); only `lzma-sys` (xz) still links a vendored C
+build, and that's been Windows-CI-tested upstream for years.
+
+**Wiring** matches the established `extras` adapter pattern:
+
+| Layer | What landed |
+|---|---|
+| `brush-bundled-extras/Cargo.toml` | `tar`/`flate2`/`bzip2`/`xz2`/`zip` optional deps; new per-utility features (`extras.tar`, `extras.gzip`, `extras.bzip2`, `extras.xz`, `extras.zip`); new aggregate `extras.compression-all`; `extras.all` umbrella now layers in `extras.compression-all`. |
+| `brush-bundled-extras/src/{tar,gzip,bzip2,xz,zip}_adapter.rs` | Five new adapter modules (~1500 lines total). |
+| `brush-bundled-extras/src/lib.rs` | Five `mod` declarations + 12 `m.insert()` registrations under per-feature cfgs. |
+| `brush-shell/Cargo.toml` | New `experimental-bundled-extras-compression` feature flag. |
+| `brush-shell/src/bundled.rs` | `cfg(any(...))` gate around the bundled-extras registry merge extended to include `experimental-bundled-extras-compression`. |
+
+**Smoke verification on Windows** (rustc 1.95.0 host build):
+
+| Command | Output |
+|---|---|
+| `brush -c "type tar && type gzip && ... && type zipinfo"` | all 12 `is a shell builtin` |
+| `brush -c "echo 'hello world' \| gzip \| gunzip"` | `hello world` (roundtrip) |
+| `brush -c "echo 'bzip2 test' \| bzip2 \| bunzip2"` | `bzip2 test` (roundtrip) |
+| `brush -c "echo 'xz test' \| xz \| unxz"` | `xz test` (roundtrip) |
+| `tar -czf out.tar.gz a.txt b.txt && tar -tzf out.tar.gz` | lists both files |
+| `tar -xzf out.tar.gz -C dest` | extracts cleanly |
+| `unzip -l test.zip` / `zipinfo test.zip` | both list with size + name |
+| `unzip -d dest test.zip` | `inflating: dest\a.txt` etc. |
+
+**Behavioral scope** (deliberate trade-offs, documented per-adapter):
+
+- **`tar`** covers the dominant agent invocations: `-c`/`-x`/`-t`
+  with optional `-z` (gzip), `-f`, `-v`, `-O`, `-C`, `--strip-components`,
+  `--exclude`. Combined gzip with `-czf`/`-xzf`/`-tzf` bundles works.
+  `-j` (bzip2-via-tar) and `-J` (xz-via-tar) **not** routed —
+  `tar -cjf` won't transparently chain through `bzip2` yet (use `tar
+  -cf - … | bzip2 > out.tar.bz2` as a workaround).
+- **`gzip` / `bzip2` / `xz` families**: each accepts file arguments
+  (compresses to `<file>.<ext>`, removes original by default, `-k` to
+  keep) or operates as a stdin/stdout filter when no path is given.
+  Levels `-1` … `-9` accepted. `-c` writes to stdout. `-f` overwrites
+  existing output. Decompression strips `.gz`/`.bz2`/`.xz` suffix and
+  recognises common archive aliases (`.tgz` → `.tar`, `.tbz2` → `.tar`,
+  `.txz` → `.tar`).
+- **`unzip`** supports `-l` (list), `-p` (extract to stdout), `-d`
+  (destination), `-o` (overwrite), `-q` (quiet), and member filtering.
+  Archive *creation* is **not** included — the `zip` create-side has
+  too many flag combinations and is uncommon in agent flows; defer
+  if requested.
+- **`zipinfo`** outputs the long-form listing (size + name); the
+  full `zipinfo -v` mode (per-entry compression method, attributes,
+  CRC) is deferred — output covers the dominant "what's in this zip"
+  use case.
+- **No archive-helper script wrappers** — `bzcmp` / `zgrep` / etc.
+  are sed/diff one-liners over the underlying utilities; can land
+  as bundled aliases later if demand surfaces.
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — version 0.1.5 → 0.1.6; deps + features
+- `brush-bundled-extras/src/lib.rs` — 5 mod decls + 12 registrations
+- `brush-bundled-extras/src/{tar,gzip,bzip2,xz,zip}_adapter.rs` — new modules
+- `brush-shell/Cargo.toml` — version 0.3.5 → 0.3.6; new feature flag; bumped `brush-bundled-extras` dep to ^0.1.6
+- `brush-shell/src/bundled.rs` — extend cfg gate
+- `docs/reference/bundled-tools-index.md` — Section D table extended; §E gap entries marked closed
+- `CHANGELOG.FORK.md` — version table + Features entry
 
 #### `feat(extras): bundle which / tree / xxd / column / file utility quick-wins`
 

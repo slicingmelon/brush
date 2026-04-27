@@ -188,6 +188,11 @@ Source:
 | `xxd` | in-tree (no deps) | — | `experimental-bundled-extras-utils` | 1.88 |
 | `column` | in-tree (no deps) | — | `experimental-bundled-extras-utils` | 1.88 |
 | `file` | crates.io `infer` | 0.16 | `experimental-bundled-extras-utils` | 1.88 |
+| `tar` | crates.io `tar` + `flate2` | 0.4 / 1 | `experimental-bundled-extras-compression` | 1.88 |
+| `gzip` / `gunzip` / `gzcat` / `zcat` | crates.io `flate2` | 1 | `experimental-bundled-extras-compression` | 1.88 |
+| `bzip2` / `bunzip2` / `bzcat` | crates.io `bzip2` (uses pure-Rust `libbz2-rs-sys`) | 0.6 | `experimental-bundled-extras-compression` | 1.88 |
+| `xz` / `unxz` / `xzcat` | crates.io `xz2` (links liblzma via `lzma-sys`) | 0.1 | `experimental-bundled-extras-compression` | 1.88 |
+| `unzip` / `zipinfo` | crates.io `zip` | 5 | `experimental-bundled-extras-compression` | 1.88 |
 
 `grep` / `fastgrep` / `egrep` / `fgrep` all resolve to the same fastgrep
 adapter. `grep` and `fastgrep` dispatch raw; `egrep` / `fgrep` insert
@@ -219,16 +224,18 @@ brush will of course resolve them.)
 
 | Tool family | Missing commands |
 |---|---|
-| tar | `tar` |
-| bzip2 | `bzip2`, `bunzip2`, `bzcat`, `bzcmp`, `bzdiff`, `bzegrep`, `bzfgrep`, `bzgrep`, `bzip2recover`, `bzless`, `bzmore` |
-| gzip | `gzip`, `gunzip`, `gzexe`, `zcat`, `zcmp`, `zdiff`, `zegrep`, `zfgrep`, `zforce`, `zgrep`, `zless`, `znew` |
-| xz | `xz`, `xzcat`, `xzdec`, `unxz`, `lzmadec`, `lzmainfo`, `xzcmp`, `xzdiff`, `xzegrep`, `xzfgrep`, `xzgrep`, `xzless`, `xzmore` |
-| zip | `unzip`, `unzipsfx`, `funzip`, `zipgrep`, `zipinfo` |
+| tar | ~~`tar`~~ — **CLOSED 2026-04-28** (Cycle 2 of `bundled-extras-coverage-expansion.md`) |
+| bzip2 | ~~`bzip2`, `bunzip2`, `bzcat`~~ **CLOSED 2026-04-28**; helpers `bzcmp` / `bzdiff` / `bzgrep` / `bzip2recover` / `bzless` / `bzmore` still missing |
+| gzip | ~~`gzip`, `gunzip`, `zcat`~~ **CLOSED 2026-04-28**; helpers `gzexe` / `zcmp` / `zdiff` / `zgrep` / `zforce` / `zless` / `znew` still missing |
+| xz | ~~`xz`, `xzcat`, `unxz`~~ **CLOSED 2026-04-28**; helpers `xzdec` / `lzmadec` / `lzmainfo` / `xzcmp` / `xzdiff` / `xzgrep` / `xzless` / `xzmore` still missing |
+| zip | ~~`unzip`, `zipinfo`~~ **CLOSED 2026-04-28**; helpers `unzipsfx` / `funzip` / `zipgrep` still missing |
 
-`tar` is the loudest absence — common enough in scripts to be worth a
-bundling decision. uutils does not ship one; `cargo install ouch` or a
-crates.io `tar`-binary search is the obvious next step. *Out of scope
-for this branch.*
+The principal compression utilities (`tar`, gzip family, bzip2 family,
+xz family, `unzip`/`zipinfo`) are now bundled. The remaining gaps in
+each family are shell-script helpers (`zgrep` is a sed-pipe one-liner
+over `zcat`; `bzcmp` is a tempfile-and-diff wrapper) — they could
+land as small bundled aliases later but most agents reach for the
+underlying utilities directly anyway.
 
 #### Diff / patch — diffutils deferred
 

@@ -1,7 +1,7 @@
 [package]
 name = "brush-bundled-extras"
 description = "Adapter wrappers for non-uutils-coreutils utilities bundled into brush-shell (findutils/diffutils/procps/grep/sed/awk as available)"
-version = "0.1.5"
+version = "0.1.6"
 categories.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -47,6 +47,17 @@ default = []
 'extras.column' = []
 'extras.file' = ["dep:infer"]
 
+# Per-utility features (Cycle 2 of bundled-extras-coverage-expansion).
+# Compression family. `tar` uses the alexcrichton `tar` crate; gzip /
+# bzip2 / xz / zip use their canonical Rust ecosystem crates. bzip2
+# and xz2 link vendored C (libbzip2, liblzma) via *-sys; both have
+# Windows CI in upstream and build with MSVC's bundled C compiler.
+'extras.tar' = ["dep:tar", "dep:flate2"]
+'extras.gzip' = ["dep:flate2"]
+'extras.bzip2' = ["dep:bzip2"]
+'extras.xz' = ["dep:xz2"]
+'extras.zip' = ["dep:zip"]
+
 # Source-grouped aggregates.
 'extras.findutils-all' = [
     'extras.find',
@@ -68,6 +79,13 @@ default = []
     'extras.column',
     'extras.file',
 ]
+'extras.compression-all' = [
+    'extras.tar',
+    'extras.gzip',
+    'extras.bzip2',
+    'extras.xz',
+    'extras.zip',
+]
 
 # Top-level aggregate. Layers in everything the cycle has wired so far —
 # findutils (Cycle 2), uutils/sed (posixutils-rs-integration Cycle 0a),
@@ -84,6 +102,7 @@ default = []
     'extras.awk-rs-all',
     'extras.fastgrep-all',
     'extras.utils-all',
+    'extras.compression-all',
 ]
 
 [lints]
@@ -122,3 +141,17 @@ kanal = { version = "0.1", optional = true }
 which = { version = "6", optional = true }
 walkdir = { version = "2", optional = true }
 infer = { version = "0.16", optional = true, default-features = false }
+
+# Cycle 2 deps (bundled-extras-coverage-expansion). Compression family.
+# `tar` is alexcrichton's reference Rust tar implementation; `flate2`
+# is the standard pure-Rust deflate/gzip wrapper (default backend is
+# `miniz_oxide`, no native code); `bzip2` + `xz2` link vendored C via
+# *-sys crates with MSVC-compatible build scripts; `zip` is the
+# canonical Rust zip implementation. We pick a minimal feature set
+# on `zip` to avoid pulling in aes-crypto / zstd / deflate64 we don't
+# need for `unzip` / `zipinfo` parity.
+tar = { version = "0.4", optional = true }
+flate2 = { version = "1", optional = true }
+bzip2 = { version = "0.6", optional = true }
+xz2 = { version = "0.1", optional = true }
+zip = { version = "5", optional = true, default-features = false, features = ["deflate", "bzip2", "time"] }

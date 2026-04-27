@@ -53,6 +53,17 @@ mod column_adapter;
 #[cfg(feature = "extras.file")]
 mod file_adapter;
 
+#[cfg(feature = "extras.tar")]
+mod tar_adapter;
+#[cfg(feature = "extras.gzip")]
+mod gzip_adapter;
+#[cfg(feature = "extras.bzip2")]
+mod bzip2_adapter;
+#[cfg(feature = "extras.xz")]
+mod xz_adapter;
+#[cfg(feature = "extras.zip")]
+mod zip_adapter;
+
 /// Signature of a bundled command's entry point.
 ///
 /// Same shape as `brush-coreutils-builtins::BundledFn`. Re-declared
@@ -132,6 +143,38 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     #[cfg(feature = "extras.file")]
     {
         m.insert("file".to_string(), file_adapter::file_main as BundledFn);
+    }
+
+    // Cycle 2 compression family (bundled-extras-coverage-expansion).
+    #[cfg(feature = "extras.tar")]
+    {
+        m.insert("tar".to_string(), tar_adapter::tar_main as BundledFn);
+    }
+    #[cfg(feature = "extras.gzip")]
+    {
+        // `gzip` / `gunzip` / `gzcat` / `zcat` all share the gzip
+        // adapter, branching on argv[0] for compress vs decompress.
+        m.insert("gzip".to_string(), gzip_adapter::gzip_main as BundledFn);
+        m.insert("gunzip".to_string(), gzip_adapter::gunzip_main as BundledFn);
+        m.insert("zcat".to_string(), gzip_adapter::zcat_main as BundledFn);
+        m.insert("gzcat".to_string(), gzip_adapter::zcat_main as BundledFn);
+    }
+    #[cfg(feature = "extras.bzip2")]
+    {
+        m.insert("bzip2".to_string(), bzip2_adapter::bzip2_main as BundledFn);
+        m.insert("bunzip2".to_string(), bzip2_adapter::bunzip2_main as BundledFn);
+        m.insert("bzcat".to_string(), bzip2_adapter::bzcat_main as BundledFn);
+    }
+    #[cfg(feature = "extras.xz")]
+    {
+        m.insert("xz".to_string(), xz_adapter::xz_main as BundledFn);
+        m.insert("unxz".to_string(), xz_adapter::unxz_main as BundledFn);
+        m.insert("xzcat".to_string(), xz_adapter::xzcat_main as BundledFn);
+    }
+    #[cfg(feature = "extras.zip")]
+    {
+        m.insert("unzip".to_string(), zip_adapter::unzip_main as BundledFn);
+        m.insert("zipinfo".to_string(), zip_adapter::zipinfo_main as BundledFn);
     }
 
     m
