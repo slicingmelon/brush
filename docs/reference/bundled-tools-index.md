@@ -179,13 +179,32 @@ Source:
 | `xargs` | `uutils/findutils` | 0.8.0 | `experimental-bundled-extras-findutils` | 1.88 |
 | `sed` | `uutils/sed` | 0.1.1 | `experimental-bundled-extras-uutils-sed` | 1.88 |
 | `awk` | `pegasusheavy/awk-rs` | 0.1.0 | `experimental-bundled-extras-awk-rs` | 1.85 |
-| `grep` | `awnion/fastgrep` | 0.1.8 | `experimental-bundled-extras-fastgrep` | **1.92** |
-| `fastgrep` | (alias of `grep`) | — | `experimental-bundled-extras-fastgrep` | **1.92** |
+| `rg` | `regex` + `pcre2` + `ignore` | — | `experimental-bundled-extras-ripgrep` | 1.88 |
+| `grep` | ripgrep adapter (overrides fastgrep when both flags enabled) | — | `experimental-bundled-extras-ripgrep` | 1.88 |
+| `egrep` | ripgrep with `-E` (overrides fastgrep when both flags enabled) | — | `experimental-bundled-extras-ripgrep` | 1.88 |
+| `fgrep` | ripgrep with `-F` (overrides fastgrep when both flags enabled) | — | `experimental-bundled-extras-ripgrep` | 1.88 |
+| `fastgrep` | `awnion/fastgrep` | 0.1.8 | `experimental-bundled-extras-fastgrep` | **1.92** |
+| `which` | crates.io `which` | 6 | `experimental-bundled-extras-utils` | 1.88 |
+| `tree` | in-tree (uses `walkdir`) | — | `experimental-bundled-extras-utils` | 1.88 |
+| `xxd` | in-tree (no deps) | — | `experimental-bundled-extras-utils` | 1.88 |
+| `column` | in-tree (no deps) | — | `experimental-bundled-extras-utils` | 1.88 |
+| `file` | crates.io `infer` | 0.16 | `experimental-bundled-extras-utils` | 1.88 |
+| `tar` | crates.io `tar` + `flate2` | 0.4 / 1 | `experimental-bundled-extras-compression` | 1.88 |
+| `gzip` / `gunzip` / `gzcat` / `zcat` | crates.io `flate2` | 1 | `experimental-bundled-extras-compression` | 1.88 |
+| `bzip2` / `bunzip2` / `bzcat` | crates.io `bzip2` (uses pure-Rust `libbz2-rs-sys`) | 0.6 | `experimental-bundled-extras-compression` | 1.88 |
+| `xz` / `unxz` / `xzcat` | crates.io `xz2` (links liblzma via `lzma-sys`) | 0.1 | `experimental-bundled-extras-compression` | 1.88 |
+| `unzip` / `zipinfo` | crates.io `zip` | 5 | `experimental-bundled-extras-compression` | 1.88 |
 
-`grep` and `fastgrep` resolve to the **same** adapter (intentional: gives
-users a name guaranteed to hit the bundled implementation if there's
-ever a `grep` higher on PATH). See `brush-bundled-extras/src/lib.rs`
-lines 88–97.
+**Cycle 3 (shipped 2026-04-28)** wired in a ripgrep-style adapter
+(`regex` + `pcre2` + `ignore`) and registered it for `rg` / `grep` /
+`egrep` / `fgrep`. When both `experimental-bundled-extras-ripgrep`
+and `experimental-bundled-extras-fastgrep` are enabled, ripgrep wins
+for the four GNU-compat names (HashMap insertion order); the
+`fastgrep` name itself stays pointing at fastgrep, so users can pick
+either engine explicitly. The headline benefit is `-P` (PCRE2) which
+fastgrep does not support. See
+[`docs/planning/bundled-extras-coverage-expansion.md`](../planning/bundled-extras-coverage-expansion.md)
+Cycle 3.
 
 ## Section E — What this install does **NOT** include
 
@@ -208,16 +227,18 @@ brush will of course resolve them.)
 
 | Tool family | Missing commands |
 |---|---|
-| tar | `tar` |
-| bzip2 | `bzip2`, `bunzip2`, `bzcat`, `bzcmp`, `bzdiff`, `bzegrep`, `bzfgrep`, `bzgrep`, `bzip2recover`, `bzless`, `bzmore` |
-| gzip | `gzip`, `gunzip`, `gzexe`, `zcat`, `zcmp`, `zdiff`, `zegrep`, `zfgrep`, `zforce`, `zgrep`, `zless`, `znew` |
-| xz | `xz`, `xzcat`, `xzdec`, `unxz`, `lzmadec`, `lzmainfo`, `xzcmp`, `xzdiff`, `xzegrep`, `xzfgrep`, `xzgrep`, `xzless`, `xzmore` |
-| zip | `unzip`, `unzipsfx`, `funzip`, `zipgrep`, `zipinfo` |
+| tar | ~~`tar`~~ — **CLOSED 2026-04-28** (Cycle 2 of `bundled-extras-coverage-expansion.md`) |
+| bzip2 | ~~`bzip2`, `bunzip2`, `bzcat`~~ **CLOSED 2026-04-28**; helpers `bzcmp` / `bzdiff` / `bzgrep` / `bzip2recover` / `bzless` / `bzmore` still missing |
+| gzip | ~~`gzip`, `gunzip`, `zcat`~~ **CLOSED 2026-04-28**; helpers `gzexe` / `zcmp` / `zdiff` / `zgrep` / `zforce` / `zless` / `znew` still missing |
+| xz | ~~`xz`, `xzcat`, `unxz`~~ **CLOSED 2026-04-28**; helpers `xzdec` / `lzmadec` / `lzmainfo` / `xzcmp` / `xzdiff` / `xzgrep` / `xzless` / `xzmore` still missing |
+| zip | ~~`unzip`, `zipinfo`~~ **CLOSED 2026-04-28**; helpers `unzipsfx` / `funzip` / `zipgrep` still missing |
 
-`tar` is the loudest absence — common enough in scripts to be worth a
-bundling decision. uutils does not ship one; `cargo install ouch` or a
-crates.io `tar`-binary search is the obvious next step. *Out of scope
-for this branch.*
+The principal compression utilities (`tar`, gzip family, bzip2 family,
+xz family, `unzip`/`zipinfo`) are now bundled. The remaining gaps in
+each family are shell-script helpers (`zgrep` is a sed-pipe one-liner
+over `zcat`; `bzcmp` is a tempfile-and-diff wrapper) — they could
+land as small bundled aliases later but most agents reach for the
+underlying utilities directly anyway.
 
 #### Diff / patch — diffutils deferred
 
@@ -257,15 +278,16 @@ Resolved via PATH from the user's Windows env (verified in conversation):
 |---|---|---|
 | `tar` | archive | high-value bundle candidate |
 | `bzip2`/`gzip`/`xz`/`zstd` family | compression | medium-value; `flate2`/`bzip2`/`xz2` crates exist |
-| `column` | columnar formatter | low-value, low-cost |
+| ~~`column`~~ | columnar formatter | **CLOSED 2026-04-28** — bundled in-tree (Cycle 1 of `bundled-extras-coverage-expansion.md`) |
 | `getopt` | shellopts (different from `getopts`) | low-value |
-| `iconv` | text encoding | medium-value; PowerShell often has it |
-| `file` | type detection | medium-value |
+| `iconv` | text encoding | medium-value; deferred to Cycle 4 |
+| ~~`file`~~ | type detection | **CLOSED 2026-04-28** — bundled via `infer` crate (Cycle 1 of `bundled-extras-coverage-expansion.md`) |
 | `less` | pager | high-value but interactive |
-| `which` | command lookup | covered by builtin `type`; not really a gap |
-| `xxd` | hex dump | low-value |
+| ~~`which`~~ | command lookup | **CLOSED 2026-04-28** — bundled via `which` crate (Cycle 1 of `bundled-extras-coverage-expansion.md`) |
+| ~~`xxd`~~ | hex dump | **CLOSED 2026-04-28** — bundled in-tree (Cycle 1 of `bundled-extras-coverage-expansion.md`) |
+| ~~`tree`~~ | directory listing | **CLOSED 2026-04-28** — bundled in-tree using `walkdir` (Cycle 1 of `bundled-extras-coverage-expansion.md`) |
 | `gawk` | gnu awk variant | covered by bundled `awk` |
-| `egrep`/`fgrep` | grep aliases | not aliased by fastgrep adapter; modern GNU grep (3.8+, 2022) deprecated those binaries in favor of `grep -E` / `grep -F`, so this may be a deliberate omission rather than a bug — worth deciding |
+| ~~`egrep`/`fgrep`~~ | grep aliases | **CLOSED 2026-04-28** — both now registered as bundled aliases of fastgrep with `-E`/`-F` pre-pended (Cycle 0a of `bundled-extras-coverage-expansion.md`) |
 | `ps` | process listing | high-value but tricky cross-platform |
 | `kill` | signal sender | bundled-extras candidate (uutils' is Unix-only); on Windows the use case is "kill PID" which `taskkill.exe` covers |
 | `tee` | already bundled (uutils) ✓ | — |
@@ -273,9 +295,8 @@ Resolved via PATH from the user's Windows env (verified in conversation):
 | `mktemp` | already bundled (uutils) ✓ | — |
 | `tac` | already bundled (uutils) ✓ | — |
 
-The `egrep`/`fgrep` aliasing gap is worth a separate sweep — same
-adapter, two extra `m.insert(...)` calls in
-`brush-bundled-extras/src/lib.rs`.
+_(The `egrep`/`fgrep` gap was closed in Cycle 0a of
+[`docs/planning/bundled-extras-coverage-expansion.md`](../planning/bundled-extras-coverage-expansion.md).)_
 
 ### From Git-for-Windows `mingw64\bin` — almost all DLLs and Avalonia GUI
 

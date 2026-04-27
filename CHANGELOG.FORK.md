@@ -1,17 +1,376 @@
 # Fork Changelog
 
 Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brush).
-Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+matching upstream's [`CHANGELOG.md`](./CHANGELOG.md).
 
-# Unreleased
+## [0.3.7] - 2026-04-28
 
-> Per-component version bumps planned for the next release:
+> Per-component version bumps in this release:
 >
 > | Crate                  | Previous | New     | Why                                                                  |
 > |------------------------|----------|---------|----------------------------------------------------------------------|
 > | `brush-core`           | 0.4.1    | 0.4.2   | Conditional `CREATE_NO_WINDOW` — fix a v0.3.1 regression where bundled coreutils produced no output when brush ran interactively from a real Windows console. |
-> | `brush-bundled-extras` | 0.1.0    | 0.1.3   | Cycle 0a — wire `uutils/sed = "0.1.1"` via `sed_adapter` (`extras.sed` / `extras.uutils-sed-all` features). Cycle 0c-revised — wire `pegasusheavy/awk-rs = "0.1.0"` via `awk_adapter` (`extras.awk` / `extras.awk-rs-all` features). Cycle 0b-revised — wire `awnion/fastgrep = "0.1.8"` via `grep_adapter::grep_main` registered as both `grep` and `fastgrep` (`extras.grep` / `extras.fastgrep-all` features). All per `posixutils-rs-integration.md`. |
-> | `brush-shell`          | 0.3.1    | 0.3.4   | New `experimental-bundled-extras-uutils-sed` (Cycle 0a), `experimental-bundled-extras-awk-rs` (Cycle 0c-revised), and `experimental-bundled-extras-fastgrep` (Cycle 0b-revised) feature flags; `bundled.rs` cfg-gate extended to merge the extras registry when only one of them is enabled. The `-fastgrep` flag carries an MSRV requirement of rustc ≥ 1.92 (above the workspace MSRV of 1.88.0) — opt-in only. |
+> | `brush-bundled-extras` | 0.1.0    | 0.1.7   | Cycle 0a — wire `uutils/sed = "0.1.1"` via `sed_adapter` (`extras.sed` / `extras.uutils-sed-all` features). Cycle 0c-revised — wire `pegasusheavy/awk-rs = "0.1.0"` via `awk_adapter` (`extras.awk` / `extras.awk-rs-all` features). Cycle 0b-revised — wire `awnion/fastgrep = "0.1.8"` via `grep_adapter::grep_main` registered as both `grep` and `fastgrep` (`extras.grep` / `extras.fastgrep-all` features). All per `posixutils-rs-integration.md`. **0.1.4** adds `egrep` / `fgrep` aliases dispatching to the same fastgrep adapter with `-E` / `-F` pre-pended (Cycle 0a of `bundled-extras-coverage-expansion.md`). **0.1.5** adds five utility quick-wins under a new `extras.utils-all` aggregate: `which` (via `which` crate), `tree` (in-tree using `walkdir`), `xxd` (in-tree, no deps), `column` (in-tree, no deps), `file` (via `infer` crate). Cycle 1 of `bundled-extras-coverage-expansion.md`. **0.1.6** adds the compression family under a new `extras.compression-all` aggregate: `tar` (via `tar` + `flate2`), `gzip`/`gunzip`/`zcat`/`gzcat` (via `flate2`), `bzip2`/`bunzip2`/`bzcat` (via `bzip2`), `xz`/`unxz`/`xzcat` (via `xz2`), `unzip`/`zipinfo` (via `zip`). Cycle 2 of `bundled-extras-coverage-expansion.md`. **0.1.7** adds a ripgrep-style adapter (`regex` + `pcre2` + `ignore`) under `extras.ripgrep-all` registering `rg`, `grep`, `egrep`, `fgrep`. Wins over fastgrep for those four GNU-compat names when both flags enabled; `fastgrep` itself remains registered to fastgrep. Headline benefit: `-P` (PCRE2) which fastgrep does not support. Cycle 3 of `bundled-extras-coverage-expansion.md`. |
+> | `brush-shell`          | 0.3.1    | 0.3.7   | New `experimental-bundled-extras-uutils-sed` (Cycle 0a), `experimental-bundled-extras-awk-rs` (Cycle 0c-revised), and `experimental-bundled-extras-fastgrep` (Cycle 0b-revised) feature flags; `bundled.rs` cfg-gate extended to merge the extras registry when only one of them is enabled. The `-fastgrep` flag carries an MSRV requirement of rustc ≥ 1.92 (above the workspace MSRV of 1.88.0) — opt-in only. **0.3.5** adds `experimental-bundled-extras-utils` (Cycle 1 of `bundled-extras-coverage-expansion.md`) — opt-in subset for the five utility quick-wins; no MSRV bump. **0.3.6** adds `experimental-bundled-extras-compression` (Cycle 2) — opt-in subset for the 12 compression utilities; no MSRV bump. **0.3.7** adds `experimental-bundled-extras-ripgrep` (Cycle 3) — registers `rg`/`grep`/`egrep`/`fgrep` from the ripgrep-style adapter; no MSRV bump (the workspace MSRV is sufficient because the bundled adapter uses `regex` + `pcre2` + `ignore` directly rather than the heavier grep-printer trait stack). |
+
+### ✨ Features
+
+- *(extras)* Ship `rg` / `grep` / `egrep` / `fgrep` via ripgrep-style adapter (`regex` + `pcre2` + `ignore`) — new `experimental-bundled-extras-ripgrep` flag. Headline: `-P` (PCRE2) now works (fastgrep didn't support it). Wins over fastgrep for those four GNU-compat names when both flags enabled (HashMap insertion order); `fastgrep` itself stays registered separately. No MSRV bump. Cycle 3 of [`bundled-extras-coverage-expansion.md`](./docs/planning/bundled-extras-coverage-expansion.md) (commit `2d8422e`).
+- *(extras)* Bundle `tar` + gzip / bzip2 / xz / zip compression family — 12 new commands under `experimental-bundled-extras-compression`. Sources: `tar = "0.4"` + `flate2 = "1"` (tar with `-z`); `flate2` (gzip / gunzip / zcat / gzcat); `bzip2 = "0.6"` with pure-Rust `libbz2-rs-sys` backend (bzip2 / bunzip2 / bzcat); `xz2 = "0.1"` with vendored liblzma (xz / unxz / xzcat); `zip = "5"` (deflate+bzip2+time features only — unzip / zipinfo). Archive creation via `unzip` is **not** included. Cycle 2 (commit `06f0366`).
+- *(extras)* Bundle `which` / `tree` / `xxd` / `column` / `file` utility quick-wins under `experimental-bundled-extras-utils`. Sources: `which = "6"` (which); `walkdir = "2"` (in-tree CLI matching GNU ASCII output); pure in-tree (xxd canonical/postscript/C-include/reverse, column -t); `infer = "0.16"` + UTF-8 heuristic (file). Cycle 1 (commit `b28d0e3`).
+- *(extras)* Add `egrep` / `fgrep` aliases to fastgrep adapter — `-E` / `-F` pre-pended after `argv[0]` mirroring GNU semantics. Closes the registration gap from §E of `bundled-tools-index.md`. Drive-by clippy 1.95 fixes bundled. Cycle 0a (commit `0ef674b`).
+- *(extras)* Bundle `grep` + `fastgrep` aliases via `awnion/fastgrep = "0.1.8"` — new `experimental-bundled-extras-fastgrep` flag with per-flag MSRV requirement of rustc ≥ 1.92 (workspace stays at 1.88.0). Cycle 0b-revised PR 2 of [`posixutils-rs-integration.md`](./docs/planning/posixutils-rs-integration.md) (commit `2b89425`).
+- *(extras)* Bundle `awk` via `pegasusheavy/awk-rs = "0.1.0"` — new `experimental-bundled-extras-awk-rs` flag. CI tests Windows in upstream. Cycle 0c-revised (commit `8898b3a`).
+- *(extras)* Bundle `sed` via `uutils/sed = "0.1.1"` — new `experimental-bundled-extras-uutils-sed` flag. uucore 0.8.0 matches `brush-coreutils-builtins`, no dep skew. Cycle 0a (commit `768a671`).
+
+### 🐛 Bug Fixes
+
+- *(windows)* Only suppress `CREATE_NO_WINDOW` when brush has no attached console — fix v0.3.1 regression where bundled coreutils produced no output when brush ran interactively from a real Windows console (cmd / pwsh / Windows Terminal). Caches `GetConsoleWindow() == NULL` in a `OnceLock<bool>`.
+
+### 📋 Process / Decisions
+
+- Cycle 0b-revised gates record (commit `bd887e2`) — MSRV gate + Windows-build smoke gate both passed; option (b) "feature-conditional MSRV" chosen for `experimental-bundled-extras-fastgrep`.
+- New planning doc [`bundled-extras-coverage-expansion.md`](./docs/planning/bundled-extras-coverage-expansion.md) — Cycles 0a / 1 / 2 / 3 (this release) + Cycle 4 deferred (id Win32 port, iconv, ps).
+
+### 📚 Documentation
+
+- New reference doc [`docs/reference/bundled-tools-index.md`](./docs/reference/bundled-tools-index.md) (commit `078bd5b`) — full inventory of every command this fork bundles + gap analysis vs Git-for-Windows; sections updated as Cycles 0a / 1 / 2 / 3 landed.
+- Mark [`docs/planning/claude-md-and-tool-index.md`](./docs/planning/claude-md-and-tool-index.md) plan as shipped (commit `2fdc337`).
+
+<details>
+<summary>Verbose detail (per-cycle context, smoke checks, behavioral trade-offs)</summary>
+
+#### `feat(extras): ship rg / grep / egrep / fgrep via ripgrep-style adapter (regex + pcre2 + ignore)`
+
+Cycle 3 of [`docs/planning/bundled-extras-coverage-expansion.md`](./docs/planning/bundled-extras-coverage-expansion.md).
+The headline change of the cycle: AI agents that try `grep -P 'pattern'`
+no longer hit "unknown option `-P`" with fastgrep — the new ripgrep-style
+adapter is now the default `grep` provider, and `fastgrep` keeps its
+own name for users who want the SIMD speed and accept fastgrep's
+GNU-grep gaps.
+
+| Name | Before this cycle | After this cycle |
+|---|---|---|
+| `grep` | fastgrep | **ripgrep-style** (regex + pcre2 + ignore) |
+| `egrep` | fastgrep with `-E` pre-pended | **ripgrep-style** with `-E` |
+| `fgrep` | fastgrep with `-F` pre-pended | **ripgrep-style** with `-F` |
+| `rg` | not registered | **ripgrep-style** (new canonical name) |
+| `fastgrep` | fastgrep | fastgrep (unchanged) |
+
+When both `experimental-bundled-extras-ripgrep` and
+`experimental-bundled-extras-fastgrep` flags are enabled, ripgrep wins
+for the four GNU-compat names because of HashMap insertion order
+(ripgrep registrations run after fastgrep's). The `fastgrep` name is
+**not** registered by the ripgrep cycle, so it stays pointing at the
+fastgrep adapter — both engines remain accessible.
+
+**Implementation choice**: the cycle plan offered three integration
+paths:
+
+- **A. Vendor BurntSushi's `crates/core/`** (~4000 lines) for full
+  ripgrep parity in a single binary
+- **B. Build a minimal CLI on the `grep` family of crates**
+- **C. PATH shim — require `cargo install ripgrep` separately**
+
+A first-pass attempt at Path B (using `grep`/`grep-printer`/etc.)
+ran into trait-bound friction with the `WriteColor`/`Sink` machinery
+that wasn't worth the API archaeology for a "single-shell-binary"
+adapter. The shipped implementation is closer to "Path B-revised":
+**use `regex` and `pcre2` directly for matching, plus the `ignore`
+crate for gitignore-aware walks** (the same crate ripgrep itself
+uses for traversal). Line-based search rather than mmap+SIMD — a
+performance trade-off, but for agent-workload sizes it's sub-second
+on most repositories and the adapter stays at ~600 lines instead of
+4000.
+
+**Supported flag set** (the dominant agent-workload set):
+
+```text
+-r/-R, -i, -n, -c, -l, -L, -h, -H, -o, -v, -w, -x, -q
+-E (default), -F, -P (PCRE2 — the headline)
+-e PATTERN (repeatable)
+-A N, -B N, -C N (after / before / both context)
+-m N (max-count)
+--include GLOB, --exclude GLOB
+--no-ignore, --hidden
+--color always|never|auto (default never)
+```
+
+Short-flag bundles (`-rni`, `-iqn`, etc.) are parsed.
+
+**Wiring**:
+
+| Layer | What landed |
+|---|---|
+| `brush-bundled-extras/Cargo.toml` | New optional deps: `regex` 1, `pcre2` 0.2, `ignore` 0.4, `termcolor` 1. New per-utility feature `extras.ripgrep`; new aggregate `extras.ripgrep-all`. (Note: `extras.all` umbrella does **not** layer in `extras.ripgrep-all` yet — keeping it opt-in for this release while users converge on the new behavior.) |
+| `brush-bundled-extras/src/ripgrep_adapter.rs` | New module — line-based grep with regex + pcre2 + ignore. ~620 lines. |
+| `brush-bundled-extras/src/lib.rs` | New `mod ripgrep_adapter` + four registrations under the `extras.ripgrep` cfg. |
+| `brush-shell/Cargo.toml` | New `experimental-bundled-extras-ripgrep` feature flag. |
+| `brush-shell/src/bundled.rs` | `cfg(any(...))` gate around the bundled-extras registry merge extended to include `experimental-bundled-extras-ripgrep`. |
+
+**MSRV win** — workspace MSRV (1.88.0) is sufficient. Users on rustc
+1.88–1.91 who couldn't enable `experimental-bundled-extras-fastgrep`
+can now enable `experimental-bundled-extras-ripgrep` and get full
+GNU + PCRE2 compatibility.
+
+**Smoke verification on Windows** (rustc 1.95.0 host build, ripgrep
+flag alone):
+
+| Command | Output |
+|---|---|
+| `brush -c "type rg && type grep && type egrep && type fgrep"` | all four `is a shell builtin` |
+| `brush -c "rg --version"` | `rg / grep (brush-bundled-extras regex+pcre2) 0.1.7` + `PCRE2 enabled` |
+| `brush -c "echo 'aa1bb' \| grep -P '\d'"` | `aa1bb` — **the headline `-P` test** |
+| `brush -c "rg -rn 'fn main' brush-shell/src"` | `brush-shell/src\bin\bash.rs:9:fn main() {` etc. (gitignore-aware, line numbers) |
+| `brush -c "printf 'apple\nbanana\ncherry\n' \| egrep '^a\|^c'"` | `apple` / `cherry` (extended-regex alternation) |
+| `brush -c "printf 'a.b\na+b\nab\n' \| fgrep 'a.b'"` | `a.b` only (literal match) |
+
+**Smoke verification with both flags** (`-ripgrep` + `-fastgrep`):
+
+| Command | Output |
+|---|---|
+| `brush -c "type rg && type grep && type fastgrep"` | all three `is a shell builtin` |
+| `brush -c "grep --version"` | `rg / grep (brush-bundled-extras regex+pcre2) 0.1.7` (ripgrep wins) |
+| `brush -c "fastgrep --version"` | `grep (fastgrep) 0.1.8 [index v1]` (fastgrep preserved) |
+
+**Behavioral scope** (deliberate trade-offs, documented in adapter):
+
+- **Line-based search** — performance is line-by-line read, not mmap.
+  Full repository searches on large monorepos may be slower than
+  ripgrep proper. Acceptable for the agent-workload target; users
+  who want the SIMD fast path can either stick with `fastgrep` or
+  fall back to a system `rg.exe` on PATH.
+- **No --color highlighting yet** — `--color always|never|auto` is
+  parsed but the adapter currently always outputs uncolored text.
+  Coloring requires per-match span tracking through the print
+  pipeline; deferred until requested.
+- **No --json output** — agent shells consuming machine-readable
+  output should pipe through `jq` or similar.
+- **`ignore` crate honors `.gitignore` by default** — matching
+  ripgrep's behavior. Use `--no-ignore` to disable.
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — version 0.1.6 → 0.1.7; new optional deps (`regex`, `pcre2`, `ignore`, `termcolor`); new `extras.ripgrep` + `extras.ripgrep-all` features
+- `brush-bundled-extras/src/lib.rs` — `mod ripgrep_adapter` + four registrations
+- `brush-bundled-extras/src/ripgrep_adapter.rs` — new module (~620 lines)
+- `brush-shell/Cargo.toml` — version 0.3.6 → 0.3.7; new feature flag; bumped `brush-bundled-extras` dep to ^0.1.7
+- `brush-shell/src/bundled.rs` — extend cfg gate
+- `docs/reference/bundled-tools-index.md` — Section D rewrites the grep family rows; clarifies ripgrep-vs-fastgrep precedence
+- `CHANGELOG.FORK.md` — version table + Features entry
+
+#### `feat(extras): bundle tar + gzip / bzip2 / xz / zip compression family`
+
+Cycle 2 of [`docs/planning/bundled-extras-coverage-expansion.md`](./docs/planning/bundled-extras-coverage-expansion.md).
+Closes the loudest compression gaps from
+[`docs/reference/bundled-tools-index.md`](./docs/reference/bundled-tools-index.md)
+§E. `tar` was specifically called out as the "loudest single absence";
+the gzip / bzip2 / xz / zip families round out the compression set
+agents need for `curl | tar xz`, `apt-get`-style download/extract
+flows, and dotfile installers.
+
+| Utility cluster | Source | Sub-utilities |
+|---|---|---|
+| `tar` | crates.io [`tar = "0.4"`](https://crates.io/crates/tar) + `flate2` for `-z` | `tar` |
+| gzip | crates.io [`flate2 = "1"`](https://crates.io/crates/flate2) (pure-Rust default backend `miniz_oxide`) | `gzip`, `gunzip`, `zcat`, `gzcat` |
+| bzip2 | crates.io [`bzip2 = "0.6"`](https://crates.io/crates/bzip2) (uses pure-Rust `libbz2-rs-sys`) | `bzip2`, `bunzip2`, `bzcat` |
+| xz | crates.io [`xz2 = "0.1"`](https://crates.io/crates/xz2) (links liblzma via `lzma-sys`) | `xz`, `unxz`, `xzcat` |
+| zip | crates.io [`zip = "5"`](https://crates.io/crates/zip), default-features = false, features = `["deflate", "bzip2", "time"]` | `unzip`, `zipinfo` |
+
+12 new bundled command names in total. All Windows-friendly. None of
+the new deps require a rustc bump beyond the workspace MSRV (1.88.0).
+The bzip2 path now uses the pure-Rust `libbz2-rs-sys` backend (no MSVC
+C compilation needed); only `lzma-sys` (xz) still links a vendored C
+build, and that's been Windows-CI-tested upstream for years.
+
+**Wiring** matches the established `extras` adapter pattern:
+
+| Layer | What landed |
+|---|---|
+| `brush-bundled-extras/Cargo.toml` | `tar`/`flate2`/`bzip2`/`xz2`/`zip` optional deps; new per-utility features (`extras.tar`, `extras.gzip`, `extras.bzip2`, `extras.xz`, `extras.zip`); new aggregate `extras.compression-all`; `extras.all` umbrella now layers in `extras.compression-all`. |
+| `brush-bundled-extras/src/{tar,gzip,bzip2,xz,zip}_adapter.rs` | Five new adapter modules (~1500 lines total). |
+| `brush-bundled-extras/src/lib.rs` | Five `mod` declarations + 12 `m.insert()` registrations under per-feature cfgs. |
+| `brush-shell/Cargo.toml` | New `experimental-bundled-extras-compression` feature flag. |
+| `brush-shell/src/bundled.rs` | `cfg(any(...))` gate around the bundled-extras registry merge extended to include `experimental-bundled-extras-compression`. |
+
+**Smoke verification on Windows** (rustc 1.95.0 host build):
+
+| Command | Output |
+|---|---|
+| `brush -c "type tar && type gzip && ... && type zipinfo"` | all 12 `is a shell builtin` |
+| `brush -c "echo 'hello world' \| gzip \| gunzip"` | `hello world` (roundtrip) |
+| `brush -c "echo 'bzip2 test' \| bzip2 \| bunzip2"` | `bzip2 test` (roundtrip) |
+| `brush -c "echo 'xz test' \| xz \| unxz"` | `xz test` (roundtrip) |
+| `tar -czf out.tar.gz a.txt b.txt && tar -tzf out.tar.gz` | lists both files |
+| `tar -xzf out.tar.gz -C dest` | extracts cleanly |
+| `unzip -l test.zip` / `zipinfo test.zip` | both list with size + name |
+| `unzip -d dest test.zip` | `inflating: dest\a.txt` etc. |
+
+**Behavioral scope** (deliberate trade-offs, documented per-adapter):
+
+- **`tar`** covers the dominant agent invocations: `-c`/`-x`/`-t`
+  with optional `-z` (gzip), `-f`, `-v`, `-O`, `-C`, `--strip-components`,
+  `--exclude`. Combined gzip with `-czf`/`-xzf`/`-tzf` bundles works.
+  `-j` (bzip2-via-tar) and `-J` (xz-via-tar) **not** routed —
+  `tar -cjf` won't transparently chain through `bzip2` yet (use `tar
+  -cf - … | bzip2 > out.tar.bz2` as a workaround).
+- **`gzip` / `bzip2` / `xz` families**: each accepts file arguments
+  (compresses to `<file>.<ext>`, removes original by default, `-k` to
+  keep) or operates as a stdin/stdout filter when no path is given.
+  Levels `-1` … `-9` accepted. `-c` writes to stdout. `-f` overwrites
+  existing output. Decompression strips `.gz`/`.bz2`/`.xz` suffix and
+  recognises common archive aliases (`.tgz` → `.tar`, `.tbz2` → `.tar`,
+  `.txz` → `.tar`).
+- **`unzip`** supports `-l` (list), `-p` (extract to stdout), `-d`
+  (destination), `-o` (overwrite), `-q` (quiet), and member filtering.
+  Archive *creation* is **not** included — the `zip` create-side has
+  too many flag combinations and is uncommon in agent flows; defer
+  if requested.
+- **`zipinfo`** outputs the long-form listing (size + name); the
+  full `zipinfo -v` mode (per-entry compression method, attributes,
+  CRC) is deferred — output covers the dominant "what's in this zip"
+  use case.
+- **No archive-helper script wrappers** — `bzcmp` / `zgrep` / etc.
+  are sed/diff one-liners over the underlying utilities; can land
+  as bundled aliases later if demand surfaces.
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — version 0.1.5 → 0.1.6; deps + features
+- `brush-bundled-extras/src/lib.rs` — 5 mod decls + 12 registrations
+- `brush-bundled-extras/src/{tar,gzip,bzip2,xz,zip}_adapter.rs` — new modules
+- `brush-shell/Cargo.toml` — version 0.3.5 → 0.3.6; new feature flag; bumped `brush-bundled-extras` dep to ^0.1.6
+- `brush-shell/src/bundled.rs` — extend cfg gate
+- `docs/reference/bundled-tools-index.md` — Section D table extended; §E gap entries marked closed
+- `CHANGELOG.FORK.md` — version table + Features entry
+
+#### `feat(extras): bundle which / tree / xxd / column / file utility quick-wins`
+
+Cycle 1 of [`docs/planning/bundled-extras-coverage-expansion.md`](./docs/planning/bundled-extras-coverage-expansion.md).
+Closes the five highest-frequency "command not found" cases for AI
+agents on Windows brush, all of which were flagged in
+[`docs/reference/bundled-tools-index.md`](./docs/reference/bundled-tools-index.md)
+§E "Genuinely useful gaps".
+
+| Utility | Source | Approach | Lines |
+|---|---|---|---|
+| `which` | crates.io [`which = "6"`](https://crates.io/crates/which) | Thin CLI wrapper; supports `-a` (all matches), `-s` (silent) | ~115 |
+| `tree` | crates.io [`walkdir = "2"`](https://crates.io/crates/walkdir) | In-tree CLI: walk + indent rendering identical to GNU `tree` ASCII output. Flags: `-L` `-d` `-a` `-I` `-P` `-f` `--noreport` | ~225 |
+| `xxd` | none — write in-tree | Canonical / postscript / C-include / reverse modes. Flags: `-r` `-c` `-g` `-s` `-l` `-p` `-i` `-u` | ~290 |
+| `column` | none — write in-tree | Table mode (`-t`) with custom separators. Flags: `-t` `-s` `-o` `-N` | ~175 |
+| `file` | crates.io [`infer = "0.16"`](https://crates.io/crates/infer) | Magic-bytes detection + UTF-8/text heuristic for plain-text fallback. Flags: `-b` `-i` | ~165 |
+
+All five Windows-friendly. None of the new deps require a rustc bump
+beyond the workspace MSRV (1.88.0). `walkdir` is what ripgrep itself
+uses for filesystem traversal; `which` is used by `cargo` and `rustup`;
+`infer` is the standard Rust magic-bytes detector.
+
+**Wiring** matches the established `extras` adapter pattern:
+
+| Layer | What landed |
+|---|---|
+| `brush-bundled-extras/Cargo.toml` | `which`/`walkdir`/`infer` optional deps; new per-utility features (`extras.which`, `extras.tree`, `extras.xxd`, `extras.column`, `extras.file`); new aggregate `extras.utils-all`; `extras.all` umbrella now layers in `extras.utils-all`. |
+| `brush-bundled-extras/src/{which,tree,xxd,column,file}_adapter.rs` | Five new adapter modules. |
+| `brush-bundled-extras/src/lib.rs` | Five `mod` declarations + five `m.insert()` registrations under per-feature cfgs. |
+| `brush-shell/Cargo.toml` | New `experimental-bundled-extras-utils` feature flag. |
+| `brush-shell/src/bundled.rs` | `cfg(any(...))` gate around the bundled-extras registry merge extended to include `experimental-bundled-extras-utils`. |
+
+**Smoke verification on Windows** (rustc 1.95.0 host build):
+
+| Command | Output |
+|---|---|
+| `brush -c "type which && type tree && type xxd && type column && type file"` | all five `is a shell builtin` |
+| `brush -c "which brush.exe"` | `C:\Users\...\.cargo\bin\brush.exe` |
+| `brush -c "which -a cargo"` | full path to cargo.exe |
+| `brush -c "tree -L 1 brush-bundled-extras/src --noreport"` | `\|--` / `\`--` ASCII tree of adapter modules |
+| `brush -c "tree -d -L 1 brush-bundled-extras --noreport"` | dirs only (`src/`) |
+| `brush -c "printf 'Hello, World!\n' \| xxd"` | `00000000: 4865 6c6c 6f2c 2057 6f72 6c64 210a       Hello, World!.` |
+| `brush -c "printf 'hi\n' \| xxd -p"` | `68690a` (postscript) |
+| `brush -c "printf 'AB' \| xxd -i"` | C-include style with `unsigned char stdin[]` + `_len` |
+| `brush -c "printf 'name age\nalice 30\nbob 25\n' \| column -t"` | aligned 2-column table |
+| `brush -c "file CHANGELOG.FORK.md target/debug/brush.exe"` | `ASCII text` / `PE32+ executable (Windows)` |
+| `brush -c "file -i CHANGELOG.FORK.md"` | `text/plain; charset=utf-8` |
+
+**Behavioral scope** (deliberate trade-offs):
+
+- `tree`'s glob matcher (`-I` / `-P`) handles `*` and `?` only — no
+  bracket expressions or escaping. Sufficient for the dominant
+  `*.ext` / `prefix*` / `*infix*` patterns.
+- `column`'s non-table mode passes through verbatim; `column -x` (fill
+  columns first) and `column -c <width>` (terminal-fill packing) are
+  not implemented yet — `-t` covers the dominant use case (formatting
+  tabular output for human consumption).
+- `xxd`'s reverse mode (`-r`) accepts both canonical and postscript
+  input; `-r -p` is not a separate code path — reverse autodetects
+  the format.
+- `file`'s magic table covers the common types `infer` returns
+  (zip/gzip/bzip2/xz/tar/pdf/png/jpeg/gif/webp/elf/PE/wasm) plus a
+  text-vs-binary heuristic. Less common types fall through to the
+  raw `infer` MIME string with extension in parentheses. No POSIX
+  `magic(5)` file parsing — that's the GNU `file`'s job and was
+  deemed out-of-scope for the agent-friendliness goal.
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — version 0.1.4 → 0.1.5; new deps + features
+- `brush-bundled-extras/src/lib.rs` — five `mod` decls + five registrations
+- `brush-bundled-extras/src/which_adapter.rs` — new module
+- `brush-bundled-extras/src/tree_adapter.rs` — new module
+- `brush-bundled-extras/src/xxd_adapter.rs` — new module
+- `brush-bundled-extras/src/column_adapter.rs` — new module
+- `brush-bundled-extras/src/file_adapter.rs` — new module
+- `brush-shell/Cargo.toml` — version 0.3.4 → 0.3.5; new feature flag; bumped `brush-bundled-extras` dep to ^0.1.5
+- `brush-shell/src/bundled.rs` — extend cfg gate
+- `docs/reference/bundled-tools-index.md` — Section D table extended; §E gap entries marked closed for the five utilities
+
+#### `feat(extras): add egrep / fgrep aliases to fastgrep adapter`
+
+Cycle 0a of [`docs/planning/bundled-extras-coverage-expansion.md`](./docs/planning/bundled-extras-coverage-expansion.md).
+Closes the `egrep` / `fgrep` registration gap flagged in
+[`docs/reference/bundled-tools-index.md`](./docs/reference/bundled-tools-index.md)
+§E ("genuinely useful gaps"). Both names now register as bundled
+builtins dispatching to the existing fastgrep adapter, with `-E` /
+`-F` pre-pended after `argv[0]` to mirror GNU `egrep` / `fgrep`
+semantics.
+
+| Smoke check (Windows, rustc 1.95.0 host build) | Output |
+|---|---|
+| `brush -c "type egrep && type fgrep"` | `egrep is a shell builtin` / `fgrep is a shell builtin` |
+| `brush -c "printf 'apple\nbanana\ncherry\n' \| egrep '^a\|^c'"` | `apple` / `cherry` (alternation works) |
+| `brush -c "printf 'a.b\na+b\nab\n' \| fgrep 'a.b'"` | `a.b` only (literal match, not regex) |
+
+fastgrep's [`GNU_GREP_COMPAT.md`](https://github.com/awnion/fastgrep/blob/main/GNU_GREP_COMPAT.md)
+confirms both `-E` and `-F` are supported, so the alias semantics are
+correct. The implementation is two thin wrappers — `egrep_main` and
+`fgrep_main` — that prepend the appropriate flag before delegating to
+`grep_main`. Both new wrappers and a small helper (`prepend_flag_after_argv0`)
+land in [`brush-bundled-extras/src/grep_adapter.rs`](./brush-bundled-extras/src/grep_adapter.rs).
+
+The `grep` → fastgrep registration is left in place; per the
+bundled-extras-coverage-expansion plan Cycle 3, ripgrep will eventually
+take over `grep` / `egrep` / `fgrep` (so `-P` works) and `fastgrep`
+will retain its own name for users who want the SIMD fast path.
+
+**Drive-by clippy 1.95 fixes** included in the same commit (these
+landed clean under the rustc the original grep_adapter was authored
+against, but newer clippy nursery/pedantic surfaces them):
+
+- `result.path = lp.clone()` → `result.path.clone_from(lp)` (assigning_clones)
+- `let filter_for_walker = candidate_filter.clone()` → drop the redundant clone
+- Split `BundledFn`'s doc-comment first paragraph (too_long_first_doc_paragraph)
+- `#[allow(clippy::significant_drop_tightening)]` added to `grep_adapter`'s
+  module-level allow set (the relevant `stdin().lock()` would require
+  invasive scope refactoring upstream of brush; allowed with the rest of
+  the upstream-port-derived allows)
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — version 0.1.3 → 0.1.4
+- `brush-bundled-extras/src/lib.rs` — register `egrep` and `fgrep`; split BundledFn doc paragraph
+- `brush-bundled-extras/src/grep_adapter.rs` — add `egrep_main`, `fgrep_main`, `prepend_flag_after_argv0`; clippy fixes; module-level allow extended
+- `docs/planning/bundled-extras-coverage-expansion.md` — new planning doc covering Cycles 0a / 1 / 2 / 3 / 4
+- `docs/reference/bundled-tools-index.md` — Section D table extended; §E gap entries marked closed
 
 ### 📋 Process / Decisions
 
@@ -321,7 +680,9 @@ output from a real console" — are now satisfied.
 
 - `brush-core/src/sys/tokio_process.rs` — `host_has_attached_console()` helper + conditional flag
 
-# v0.3.1 - 2026-04-25
+</details>
+
+## [0.3.1] - 2026-04-25
 
 > Per-component version bumps in this release:
 >

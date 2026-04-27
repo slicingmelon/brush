@@ -28,6 +28,7 @@
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::needless_pass_by_value,
+    clippy::significant_drop_tightening,
     reason = "module ports upstream fastgrep src/bin/grep.rs::main() shape; refactoring would diverge from upstream"
 )]
 
@@ -51,6 +52,37 @@ use fastgrep::threadpool::ThreadPool;
 use fastgrep::trigram::{INDEX_VERSION, TrigramIndex, evict_if_needed};
 use fastgrep::walker::{SkippedFile, walk};
 use kanal::bounded;
+
+/// `egrep` alias — pre-pends `-E` after `argv[0]` and delegates to
+/// [`grep_main`]. GNU `egrep` is `grep -E` (extended regex); fastgrep
+/// honors `-E`. Per `docs/planning/bundled-extras-coverage-expansion.md`
+/// Cycle 0a.
+pub(crate) fn egrep_main(args: Vec<OsString>) -> i32 {
+    grep_main(prepend_flag_after_argv0(args, "-E"))
+}
+
+/// `fgrep` alias — pre-pends `-F` after `argv[0]` and delegates to
+/// [`grep_main`]. GNU `fgrep` is `grep -F` (fixed-string match);
+/// fastgrep honors `-F`. Per `docs/planning/bundled-extras-coverage-expansion.md`
+/// Cycle 0a.
+pub(crate) fn fgrep_main(args: Vec<OsString>) -> i32 {
+    grep_main(prepend_flag_after_argv0(args, "-F"))
+}
+
+/// Insert `flag` immediately after `args[0]` (the bundled command
+/// name). Empty input returns `[flag]` so the alias is still meaningful
+/// in degenerate dispatch (shouldn't happen — `bundled.rs` always sets
+/// `args[0]`).
+fn prepend_flag_after_argv0(args: Vec<OsString>, flag: &str) -> Vec<OsString> {
+    let mut out = Vec::with_capacity(args.len() + 1);
+    let mut iter = args.into_iter();
+    if let Some(first) = iter.next() {
+        out.push(first);
+    }
+    out.push(OsString::from(flag));
+    out.extend(iter);
+    out
+}
 
 /// Bundled-dispatch entry point for `grep` / `fastgrep`. Mirrors
 /// [upstream `src/bin/grep.rs::main`](https://github.com/awnion/fastgrep/blob/main/src/bin/grep.rs).
@@ -243,7 +275,7 @@ fn run_stdin(
         };
 
     if let Some(ref lp) = label_path {
-        result.path = lp.clone();
+        result.path.clone_from(lp);
     }
 
     let found_match = !result.matches.is_empty();
@@ -320,7 +352,7 @@ fn run_files(
     let skipped_files: Arc<Mutex<Vec<SkippedFile>>> = Arc::new(Mutex::new(Vec::new()));
     let skipped_for_walker = Arc::clone(&skipped_files);
 
-    let filter_for_walker = candidate_filter.clone();
+    let filter_for_walker = candidate_filter;
     let walker_handle = match std::thread::Builder::new()
         .name("fg-walker".into())
         .spawn(move || {

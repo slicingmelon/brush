@@ -1,7 +1,7 @@
 [package]
 name = "brush-bundled-extras"
 description = "Adapter wrappers for non-uutils-coreutils utilities bundled into brush-shell (findutils/diffutils/procps/grep/sed/awk as available)"
-version = "0.1.3"
+version = "0.1.7"
 categories.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -38,6 +38,41 @@ default = []
 # Cycle 0b-revised.
 'extras.grep' = ["dep:fastgrep", "dep:clap", "dep:kanal"]
 
+# Per-utility features (Cycle 1 of bundled-extras-coverage-expansion).
+# `which` and `file` use small crates.io deps; `tree` uses `walkdir`;
+# `xxd` and `column` are pure in-tree implementations with no deps.
+'extras.which' = ["dep:which"]
+'extras.tree' = ["dep:walkdir"]
+'extras.xxd' = []
+'extras.column' = []
+'extras.file' = ["dep:infer"]
+
+# Per-utility features (Cycle 2 of bundled-extras-coverage-expansion).
+# Compression family. `tar` uses the alexcrichton `tar` crate; gzip /
+# bzip2 / xz / zip use their canonical Rust ecosystem crates. bzip2
+# and xz2 link vendored C (libbzip2, liblzma) via *-sys; both have
+# Windows CI in upstream and build with MSVC's bundled C compiler.
+'extras.tar' = ["dep:tar", "dep:flate2"]
+'extras.gzip' = ["dep:flate2"]
+'extras.bzip2' = ["dep:bzip2"]
+'extras.xz' = ["dep:xz2"]
+'extras.zip' = ["dep:zip"]
+
+# Per-utility feature (Cycle 3 of bundled-extras-coverage-expansion).
+# ripgrep-style adapter — registers `rg`, `grep`, `egrep`, `fgrep`.
+# Uses the `regex` crate (Rust regex, ERE-equivalent) and `pcre2`
+# (for `-P`), with the `ignore` crate handling gitignore-aware walks
+# (the same crate ripgrep itself uses). When combined with
+# `extras.grep` (fastgrep), this wins for the four GNU-compat names
+# because of HashMap insertion order; `fastgrep` itself remains
+# registered to fastgrep so users keep both engines accessible.
+'extras.ripgrep' = [
+    "dep:regex",
+    "dep:pcre2",
+    "dep:ignore",
+    "dep:termcolor",
+]
+
 # Source-grouped aggregates.
 'extras.findutils-all' = [
     'extras.find',
@@ -52,11 +87,28 @@ default = []
 'extras.fastgrep-all' = [
     'extras.grep',
 ]
+'extras.utils-all' = [
+    'extras.which',
+    'extras.tree',
+    'extras.xxd',
+    'extras.column',
+    'extras.file',
+]
+'extras.compression-all' = [
+    'extras.tar',
+    'extras.gzip',
+    'extras.bzip2',
+    'extras.xz',
+    'extras.zip',
+]
+'extras.ripgrep-all' = [
+    'extras.ripgrep',
+]
 
 # Top-level aggregate. Layers in everything the cycle has wired so far —
 # findutils (Cycle 2), uutils/sed (posixutils-rs-integration Cycle 0a),
-# awk-rs (Cycle 0c-revised), fastgrep (Cycle 0b-revised). diffutils
-# (Cycle 3) and procps (Cycle 4) extend this set as they land.
+# awk-rs (Cycle 0c-revised), fastgrep (Cycle 0b-revised), utility
+# quick-wins (bundled-extras-coverage-expansion Cycle 1).
 #
 # `extras.all` enabling `extras.fastgrep-all` means consumers of
 # `experimental-bundled-extras` (the umbrella flag) inherit fastgrep's
@@ -67,6 +119,8 @@ default = []
     'extras.uutils-sed-all',
     'extras.awk-rs-all',
     'extras.fastgrep-all',
+    'extras.utils-all',
+    'extras.compression-all',
 ]
 
 [lints]
@@ -97,3 +151,37 @@ awk-rs = { version = "0.1.0", optional = true }
 fastgrep = { version = "0.1.8", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 kanal = { version = "0.1", optional = true }
+
+# Cycle 1 deps (bundled-extras-coverage-expansion). All Windows-CI tested
+# upstream and used by major Rust projects (ripgrep depends on `walkdir`;
+# `cargo` and `rustup` depend on `which`; `infer` is the standard Rust
+# magic-bytes detector).
+which = { version = "6", optional = true }
+walkdir = { version = "2", optional = true }
+infer = { version = "0.16", optional = true, default-features = false }
+
+# Cycle 2 deps (bundled-extras-coverage-expansion). Compression family.
+# `tar` is alexcrichton's reference Rust tar implementation; `flate2`
+# is the standard pure-Rust deflate/gzip wrapper (default backend is
+# `miniz_oxide`, no native code); `bzip2` + `xz2` link vendored C via
+# *-sys crates with MSVC-compatible build scripts; `zip` is the
+# canonical Rust zip implementation. We pick a minimal feature set
+# on `zip` to avoid pulling in aes-crypto / zstd / deflate64 we don't
+# need for `unzip` / `zipinfo` parity.
+tar = { version = "0.4", optional = true }
+flate2 = { version = "1", optional = true }
+bzip2 = { version = "0.6", optional = true }
+xz2 = { version = "0.1", optional = true }
+zip = { version = "5", optional = true, default-features = false, features = ["deflate", "bzip2", "time"] }
+
+# Cycle 3 deps (bundled-extras-coverage-expansion). ripgrep-style
+# grep using regex + pcre2 directly with the `ignore` crate for
+# gitignore-aware walks (the same crate ripgrep itself uses). Avoids
+# the heavier `grep-printer` trait stack — line-based search keeps the
+# adapter ~400 lines instead of vendoring 4000 lines of ripgrep core.
+# `pcre2` links a vendored PCRE2 C build via `pcre2-sys`; upstream
+# Windows-CI tested as part of ripgrep itself.
+regex = { version = "1", optional = true }
+pcre2 = { version = "0.2", optional = true }
+ignore = { version = "0.4", optional = true }
+termcolor = { version = "1", optional = true }

@@ -42,10 +42,36 @@ use std::ffi::OsString;
 #[cfg(feature = "extras.grep")]
 mod grep_adapter;
 
-/// Signature of a bundled command's entry point — same shape as
-/// `brush-coreutils-builtins::BundledFn`. Re-declared here to avoid a
-/// dependency on that crate; consumers (brush-shell) merge the two
-/// registries by `HashMap::extend`.
+#[cfg(feature = "extras.which")]
+mod which_adapter;
+#[cfg(feature = "extras.tree")]
+mod tree_adapter;
+#[cfg(feature = "extras.xxd")]
+mod xxd_adapter;
+#[cfg(feature = "extras.column")]
+mod column_adapter;
+#[cfg(feature = "extras.file")]
+mod file_adapter;
+
+#[cfg(feature = "extras.tar")]
+mod tar_adapter;
+#[cfg(feature = "extras.gzip")]
+mod gzip_adapter;
+#[cfg(feature = "extras.bzip2")]
+mod bzip2_adapter;
+#[cfg(feature = "extras.xz")]
+mod xz_adapter;
+#[cfg(feature = "extras.zip")]
+mod zip_adapter;
+
+#[cfg(feature = "extras.ripgrep")]
+mod ripgrep_adapter;
+
+/// Signature of a bundled command's entry point.
+///
+/// Same shape as `brush-coreutils-builtins::BundledFn`. Re-declared
+/// here to avoid a dependency on that crate; consumers (brush-shell)
+/// merge the two registries by `HashMap::extend`.
 pub type BundledFn = fn(args: Vec<OsString>) -> i32;
 
 /// Returns the set of bundled commands enabled by feature flags.
@@ -87,13 +113,90 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
 
     #[cfg(feature = "extras.grep")]
     {
-        // Both names dispatch to the same adapter — matches upstream
-        // README's "installed binary is called `grep`" intent and gives
-        // users an explicit `fastgrep` alias when they want to be sure
-        // they're hitting the bundled implementation rather than a
-        // PATH `grep`.
+        // `grep` / `fastgrep` dispatch directly to the upstream CLI;
+        // `egrep` / `fgrep` are GNU-style aliases that prepend `-E`
+        // (extended regex) / `-F` (fixed string) before delegating —
+        // matching the historical behavior agents and shell scripts
+        // expect. See `docs/planning/bundled-extras-coverage-expansion.md`
+        // Cycle 0a. fastgrep's `GNU_GREP_COMPAT.md` confirms `-E` and
+        // `-F` are both supported.
         m.insert("grep".to_string(), grep_adapter::grep_main as BundledFn);
         m.insert("fastgrep".to_string(), grep_adapter::grep_main as BundledFn);
+        m.insert("egrep".to_string(), grep_adapter::egrep_main as BundledFn);
+        m.insert("fgrep".to_string(), grep_adapter::fgrep_main as BundledFn);
+    }
+
+    // Cycle 1 utility quick-wins (bundled-extras-coverage-expansion).
+    #[cfg(feature = "extras.which")]
+    {
+        m.insert("which".to_string(), which_adapter::which_main as BundledFn);
+    }
+    #[cfg(feature = "extras.tree")]
+    {
+        m.insert("tree".to_string(), tree_adapter::tree_main as BundledFn);
+    }
+    #[cfg(feature = "extras.xxd")]
+    {
+        m.insert("xxd".to_string(), xxd_adapter::xxd_main as BundledFn);
+    }
+    #[cfg(feature = "extras.column")]
+    {
+        m.insert("column".to_string(), column_adapter::column_main as BundledFn);
+    }
+    #[cfg(feature = "extras.file")]
+    {
+        m.insert("file".to_string(), file_adapter::file_main as BundledFn);
+    }
+
+    // Cycle 2 compression family (bundled-extras-coverage-expansion).
+    #[cfg(feature = "extras.tar")]
+    {
+        m.insert("tar".to_string(), tar_adapter::tar_main as BundledFn);
+    }
+    #[cfg(feature = "extras.gzip")]
+    {
+        // `gzip` / `gunzip` / `gzcat` / `zcat` all share the gzip
+        // adapter, branching on argv[0] for compress vs decompress.
+        m.insert("gzip".to_string(), gzip_adapter::gzip_main as BundledFn);
+        m.insert("gunzip".to_string(), gzip_adapter::gunzip_main as BundledFn);
+        m.insert("zcat".to_string(), gzip_adapter::zcat_main as BundledFn);
+        m.insert("gzcat".to_string(), gzip_adapter::zcat_main as BundledFn);
+    }
+    #[cfg(feature = "extras.bzip2")]
+    {
+        m.insert("bzip2".to_string(), bzip2_adapter::bzip2_main as BundledFn);
+        m.insert("bunzip2".to_string(), bzip2_adapter::bunzip2_main as BundledFn);
+        m.insert("bzcat".to_string(), bzip2_adapter::bzcat_main as BundledFn);
+    }
+    #[cfg(feature = "extras.xz")]
+    {
+        m.insert("xz".to_string(), xz_adapter::xz_main as BundledFn);
+        m.insert("unxz".to_string(), xz_adapter::unxz_main as BundledFn);
+        m.insert("xzcat".to_string(), xz_adapter::xzcat_main as BundledFn);
+    }
+    #[cfg(feature = "extras.zip")]
+    {
+        m.insert("unzip".to_string(), zip_adapter::unzip_main as BundledFn);
+        m.insert("zipinfo".to_string(), zip_adapter::zipinfo_main as BundledFn);
+    }
+
+    // Cycle 3 (bundled-extras-coverage-expansion). ripgrep replaces
+    // fastgrep as the engine for `grep` / `egrep` / `fgrep`, and adds
+    // `rg` as ripgrep's canonical name. `fastgrep` itself remains
+    // registered to the fastgrep adapter under `extras.grep` (above)
+    // for users who want the SIMD speed and accept the GNU-grep gaps.
+    //
+    // When BOTH `extras.grep` (fastgrep) and `extras.ripgrep` are
+    // enabled, ripgrep wins for grep/egrep/fgrep because these inserts
+    // run after fastgrep's and overwrite by HashMap semantics. The
+    // `fastgrep` name registered above is NOT overwritten — it stays
+    // pointing at fastgrep.
+    #[cfg(feature = "extras.ripgrep")]
+    {
+        m.insert("rg".to_string(), ripgrep_adapter::rg_main as BundledFn);
+        m.insert("grep".to_string(), ripgrep_adapter::grep_main as BundledFn);
+        m.insert("egrep".to_string(), ripgrep_adapter::egrep_main as BundledFn);
+        m.insert("fgrep".to_string(), ripgrep_adapter::fgrep_main as BundledFn);
     }
 
     m
