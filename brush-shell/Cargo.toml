@@ -1,7 +1,7 @@
 [package]
 name = "brush-shell"
 description = "Rust-implemented shell focused on POSIX and bash compatibility"
-version = "0.3.6"
+version = "0.3.7"
 authors.workspace = true
 categories.workspace = true
 edition.workspace = true
@@ -145,6 +145,16 @@ experimental-bundled-extras-compression = [
     "dep:brush-bundled-extras",
     "brush-bundled-extras/extras.compression-all",
 ]
+# Cycle 3 of `bundled-extras-coverage-expansion.md` — ripgrep-style
+# `rg` / `grep` / `egrep` / `fgrep` with `-P` (PCRE2) support. When
+# this flag is enabled alongside `experimental-bundled-extras-fastgrep`,
+# ripgrep wins for grep/egrep/fgrep (HashMap insertion order); the
+# `fastgrep` name keeps pointing at fastgrep so users get both engines.
+# No MSRV bump required.
+experimental-bundled-extras-ripgrep = [
+    "dep:brush-bundled-extras",
+    "brush-bundled-extras/extras.ripgrep-all",
+]
 experimental-load = ["dep:serde_json", "brush-core/serde"]
 experimental-parser = [
     "brush-core/experimental-parser",
@@ -158,7 +168,7 @@ workspace = true
 [dependencies]
 brush-core = { version = "^0.4.0", path = "../brush-core" }
 brush-builtins = { version = "^0.1.0", path = "../brush-builtins" }
-brush-bundled-extras = { version = "^0.1.6", path = "../brush-bundled-extras", optional = true }
+brush-bundled-extras = { version = "^0.1.7", path = "../brush-bundled-extras", optional = true }
 brush-coreutils-builtins = { version = "^0.1.0", path = "../brush-coreutils-builtins", optional = true }
 brush-experimental-builtins = { version = "^0.1.0", path = "../brush-experimental-builtins", optional = true }
 clap = { version = "4.6.0", features = ["derive", "env"] }

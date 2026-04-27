@@ -64,6 +64,9 @@ mod xz_adapter;
 #[cfg(feature = "extras.zip")]
 mod zip_adapter;
 
+#[cfg(feature = "extras.ripgrep")]
+mod ripgrep_adapter;
+
 /// Signature of a bundled command's entry point.
 ///
 /// Same shape as `brush-coreutils-builtins::BundledFn`. Re-declared
@@ -175,6 +178,25 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     {
         m.insert("unzip".to_string(), zip_adapter::unzip_main as BundledFn);
         m.insert("zipinfo".to_string(), zip_adapter::zipinfo_main as BundledFn);
+    }
+
+    // Cycle 3 (bundled-extras-coverage-expansion). ripgrep replaces
+    // fastgrep as the engine for `grep` / `egrep` / `fgrep`, and adds
+    // `rg` as ripgrep's canonical name. `fastgrep` itself remains
+    // registered to the fastgrep adapter under `extras.grep` (above)
+    // for users who want the SIMD speed and accept the GNU-grep gaps.
+    //
+    // When BOTH `extras.grep` (fastgrep) and `extras.ripgrep` are
+    // enabled, ripgrep wins for grep/egrep/fgrep because these inserts
+    // run after fastgrep's and overwrite by HashMap semantics. The
+    // `fastgrep` name registered above is NOT overwritten — it stays
+    // pointing at fastgrep.
+    #[cfg(feature = "extras.ripgrep")]
+    {
+        m.insert("rg".to_string(), ripgrep_adapter::rg_main as BundledFn);
+        m.insert("grep".to_string(), ripgrep_adapter::grep_main as BundledFn);
+        m.insert("egrep".to_string(), ripgrep_adapter::egrep_main as BundledFn);
+        m.insert("fgrep".to_string(), ripgrep_adapter::fgrep_main as BundledFn);
     }
 
     m

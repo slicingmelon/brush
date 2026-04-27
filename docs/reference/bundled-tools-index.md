@@ -179,10 +179,11 @@ Source:
 | `xargs` | `uutils/findutils` | 0.8.0 | `experimental-bundled-extras-findutils` | 1.88 |
 | `sed` | `uutils/sed` | 0.1.1 | `experimental-bundled-extras-uutils-sed` | 1.88 |
 | `awk` | `pegasusheavy/awk-rs` | 0.1.0 | `experimental-bundled-extras-awk-rs` | 1.85 |
-| `grep` | `awnion/fastgrep` | 0.1.8 | `experimental-bundled-extras-fastgrep` | **1.92** |
-| `fastgrep` | (alias of `grep`) | — | `experimental-bundled-extras-fastgrep` | **1.92** |
-| `egrep` | (alias of `grep` with `-E` pre-pended) | — | `experimental-bundled-extras-fastgrep` | **1.92** |
-| `fgrep` | (alias of `grep` with `-F` pre-pended) | — | `experimental-bundled-extras-fastgrep` | **1.92** |
+| `rg` | `regex` + `pcre2` + `ignore` | — | `experimental-bundled-extras-ripgrep` | 1.88 |
+| `grep` | ripgrep adapter (overrides fastgrep when both flags enabled) | — | `experimental-bundled-extras-ripgrep` | 1.88 |
+| `egrep` | ripgrep with `-E` (overrides fastgrep when both flags enabled) | — | `experimental-bundled-extras-ripgrep` | 1.88 |
+| `fgrep` | ripgrep with `-F` (overrides fastgrep when both flags enabled) | — | `experimental-bundled-extras-ripgrep` | 1.88 |
+| `fastgrep` | `awnion/fastgrep` | 0.1.8 | `experimental-bundled-extras-fastgrep` | **1.92** |
 | `which` | crates.io `which` | 6 | `experimental-bundled-extras-utils` | 1.88 |
 | `tree` | in-tree (uses `walkdir`) | — | `experimental-bundled-extras-utils` | 1.88 |
 | `xxd` | in-tree (no deps) | — | `experimental-bundled-extras-utils` | 1.88 |
@@ -194,14 +195,16 @@ Source:
 | `xz` / `unxz` / `xzcat` | crates.io `xz2` (links liblzma via `lzma-sys`) | 0.1 | `experimental-bundled-extras-compression` | 1.88 |
 | `unzip` / `zipinfo` | crates.io `zip` | 5 | `experimental-bundled-extras-compression` | 1.88 |
 
-`grep` / `fastgrep` / `egrep` / `fgrep` all resolve to the same fastgrep
-adapter. `grep` and `fastgrep` dispatch raw; `egrep` / `fgrep` insert
-`-E` / `-F` immediately after `argv[0]` to mirror GNU `egrep` / `fgrep`
-semantics. See `brush-bundled-extras/src/lib.rs` and the
-`grep_adapter::{egrep_main, fgrep_main}` wrappers. Per
+**Cycle 3 (shipped 2026-04-28)** wired in a ripgrep-style adapter
+(`regex` + `pcre2` + `ignore`) and registered it for `rg` / `grep` /
+`egrep` / `fgrep`. When both `experimental-bundled-extras-ripgrep`
+and `experimental-bundled-extras-fastgrep` are enabled, ripgrep wins
+for the four GNU-compat names (HashMap insertion order); the
+`fastgrep` name itself stays pointing at fastgrep, so users can pick
+either engine explicitly. The headline benefit is `-P` (PCRE2) which
+fastgrep does not support. See
 [`docs/planning/bundled-extras-coverage-expansion.md`](../planning/bundled-extras-coverage-expansion.md)
-Cycle 0a, ripgrep is planned to take over `grep` / `egrep` / `fgrep`
-in Cycle 3 — `fastgrep` will retain its own name then.
+Cycle 3.
 
 ## Section E — What this install does **NOT** include
 

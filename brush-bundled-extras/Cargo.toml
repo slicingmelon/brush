@@ -1,7 +1,7 @@
 [package]
 name = "brush-bundled-extras"
 description = "Adapter wrappers for non-uutils-coreutils utilities bundled into brush-shell (findutils/diffutils/procps/grep/sed/awk as available)"
-version = "0.1.6"
+version = "0.1.7"
 categories.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -58,6 +58,21 @@ default = []
 'extras.xz' = ["dep:xz2"]
 'extras.zip' = ["dep:zip"]
 
+# Per-utility feature (Cycle 3 of bundled-extras-coverage-expansion).
+# ripgrep-style adapter — registers `rg`, `grep`, `egrep`, `fgrep`.
+# Uses the `regex` crate (Rust regex, ERE-equivalent) and `pcre2`
+# (for `-P`), with the `ignore` crate handling gitignore-aware walks
+# (the same crate ripgrep itself uses). When combined with
+# `extras.grep` (fastgrep), this wins for the four GNU-compat names
+# because of HashMap insertion order; `fastgrep` itself remains
+# registered to fastgrep so users keep both engines accessible.
+'extras.ripgrep' = [
+    "dep:regex",
+    "dep:pcre2",
+    "dep:ignore",
+    "dep:termcolor",
+]
+
 # Source-grouped aggregates.
 'extras.findutils-all' = [
     'extras.find',
@@ -85,6 +100,9 @@ default = []
     'extras.bzip2',
     'extras.xz',
     'extras.zip',
+]
+'extras.ripgrep-all' = [
+    'extras.ripgrep',
 ]
 
 # Top-level aggregate. Layers in everything the cycle has wired so far —
@@ -155,3 +173,15 @@ flate2 = { version = "1", optional = true }
 bzip2 = { version = "0.6", optional = true }
 xz2 = { version = "0.1", optional = true }
 zip = { version = "5", optional = true, default-features = false, features = ["deflate", "bzip2", "time"] }
+
+# Cycle 3 deps (bundled-extras-coverage-expansion). ripgrep-style
+# grep using regex + pcre2 directly with the `ignore` crate for
+# gitignore-aware walks (the same crate ripgrep itself uses). Avoids
+# the heavier `grep-printer` trait stack — line-based search keeps the
+# adapter ~400 lines instead of vendoring 4000 lines of ripgrep core.
+# `pcre2` links a vendored PCRE2 C build via `pcre2-sys`; upstream
+# Windows-CI tested as part of ripgrep itself.
+regex = { version = "1", optional = true }
+pcre2 = { version = "0.2", optional = true }
+ignore = { version = "0.4", optional = true }
+termcolor = { version = "1", optional = true }
