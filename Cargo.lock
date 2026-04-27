@@ -495,7 +495,7 @@ dependencies = [
 
 [[package]]
 name = "brush-bundled-extras"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "awk-rs",
  "bzip2",
@@ -741,7 +741,7 @@ dependencies = [
 
 [[package]]
 name = "brush-shell"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "anyhow",
  "assert_cmd",

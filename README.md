@@ -101,18 +101,20 @@ This fork lives at [`slicingmelon/brush`](https://github.com/slicingmelon/brush)
 
 > ℹ️ **Two binaries are produced.** Every install of this fork deposits both `brush` *and* `bash` (`brush.exe` / `bash.exe` on Windows) into `~/.cargo/bin/`. The `bash` binary is the same shell — it simply identifies itself as `bash (brush)` in version banners. This lets brush act as a drop-in Git-Bash replacement without any manual rename step.
 
-**Recommended per-platform install (everything bundled — coreutils + Unix/Linux extras + findutils + `sed` + `awk` + `grep`):**
+**Recommended per-platform install (everything bundled — coreutils + Unix/Linux extras + findutils + `sed`/`awk` + `grep` family + utility quick-wins + compression family):**
 
-> ⚠️ **Toolchain requirement**: the recommended commands below pull `fastgrep` (the bundled `grep`), which has `rust-version = "1.92"`. You need **rustc ≥ 1.92** for these commands to compile. The brush workspace itself stays at MSRV 1.88.0; only the optional fastgrep-backed `grep` flag carries the bumped requirement. If you're on rustc 1.88–1.91, see the "without grep" alternates further down.
+> ⚠️ **Toolchain requirement**: the recommended commands below pull `fastgrep` (one of the bundled `grep` providers), which has `rust-version = "1.92"`. You need **rustc ≥ 1.92** for these commands to compile. The brush workspace itself stays at MSRV 1.88.0; only the optional fastgrep flag carries the bumped requirement. If you're on rustc 1.88–1.91, see the "without fastgrep" alternate further down — you still get a full GNU-grep-compatible `grep` (with `-P`/PCRE2!) via the bundled ripgrep adapter.
+
+The single `experimental-bundled-extras` umbrella flag now pulls in **everything bundled-extras** transitively: `find`/`xargs`, `sed`, `awk`, fastgrep + ripgrep (`grep`/`rg`/`egrep`/`fgrep`/`fastgrep`), the utility quick-wins (`which`/`tree`/`xxd`/`column`/`file`/`id`/`clear`), and the compression family (`tar`/`gzip`/`gunzip`/`zcat`/`gzcat`/`bzip2`/`bunzip2`/`bzcat`/`xz`/`unxz`/`xzcat`/`unzip`/`zipinfo`).
 
 ```bash
-# Linux (full Unix+Linux extras + findutils + sed + awk + grep)
+# Linux (full Unix+Linux extras + everything bundled-extras)
 cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force --features experimental-builtins,experimental-bundled-coreutils-linux-extras,experimental-bundled-extras
 
-# macOS (Unix extras + findutils + sed + awk + grep — same as Linux minus stdbuf/chcon/runcon)
+# macOS (Unix extras + everything bundled-extras — same as Linux minus stdbuf/chcon/runcon)
 cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force --features experimental-builtins,experimental-bundled-coreutils-unix-extras,experimental-bundled-extras
 
-# Windows (cross-platform coreutils only + findutils + sed + awk + grep — uutils gates id/chmod/etc to cfg(unix); fall through to PATH for those)
+# Windows (cross-platform coreutils + everything bundled-extras — uutils gates chmod/chown/etc to cfg(unix); brush bundles its own `id` via Win32 token API)
 cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force --features experimental-builtins,experimental-bundled-coreutils,experimental-bundled-extras
 ```
 
@@ -123,14 +125,14 @@ git clone https://github.com/slicingmelon/brush
 cargo install --locked --path brush/brush-shell --force --features experimental-builtins,experimental-bundled-coreutils,experimental-bundled-extras
 ```
 
-**Alternate install for rustc 1.88–1.91 (no `grep`)** — replaces the umbrella `experimental-bundled-extras` with the per-utility flags so fastgrep's MSRV bump doesn't apply:
+**Alternate install for rustc 1.88–1.91 (no `fastgrep`, but still full `grep` via ripgrep)** — replaces the umbrella `experimental-bundled-extras` with the per-utility flags so fastgrep's MSRV bump doesn't apply. You **still get** `grep`/`egrep`/`fgrep`/`rg` (the ripgrep adapter has no MSRV bump) plus `find`/`xargs`/`sed`/`awk`/all utility quick-wins / compression family:
 
 ```bash
 # Pick the matching coreutils flag for your platform; this example is Linux.
-cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force --features experimental-builtins,experimental-bundled-coreutils-linux-extras,experimental-bundled-extras-findutils,experimental-bundled-extras-uutils-sed,experimental-bundled-extras-awk-rs
+cargo install --locked --git https://github.com/slicingmelon/brush brush-shell --force --features experimental-builtins,experimental-bundled-coreutils-linux-extras,experimental-bundled-extras-findutils,experimental-bundled-extras-uutils-sed,experimental-bundled-extras-awk-rs,experimental-bundled-extras-ripgrep,experimental-bundled-extras-utils,experimental-bundled-extras-compression
 ```
 
-You'll get `find`/`xargs`/`sed`/`awk` from this set, and `grep` falls through to whatever's on `PATH` (Git Bash MSYS2 ships one on Windows; native on Linux/macOS).
+The only difference vs. the umbrella install is that `fastgrep` (under its own command name) won't be available — `grep -P` still works because the ripgrep-backed `grep` supports PCRE2.
 
 **Plain install (no experimental features — minimal shell, no bundled utilities):**
 
@@ -146,18 +148,31 @@ cargo install --locked --git https://github.com/slicingmelon/brush brush-shell
 | `experimental-bundled-coreutils`                  | uutils/coreutils — every utility that builds on Tier-1 targets (cross-platform set, ~82 utilities including `cat`, `ls`, `head`, `tail`, `wc`, `sort`, ...)| all       | 1.88  |
 | `experimental-bundled-coreutils-unix-extras`      | Adds Unix-only utilities on top: `id`, `groups`, `stat`, `timeout`, `install`, `chmod`, `chown`, `chgrp`, `chroot`, `logname`, `tty`, `mkfifo`, `mknod`, `nice`, `nohup`, `stty`, `kill`, `pinky`, `uptime`, `users`, `who`, `hostid` | Unix only | 1.88  |
 | `experimental-bundled-coreutils-linux-extras`     | Adds Linux-only utilities on top of `-unix-extras`: `stdbuf`, `chcon`, `runcon`                                                                           | Linux only| 1.88  |
-| `experimental-bundled-extras` *(umbrella)*        | Non-coreutils utilities via adapter wrappers. **Now includes everything below transitively** — `find`/`xargs`, `sed`, `awk`, and `grep`/`fastgrep`. Inherits fastgrep's MSRV bump.| all  | **1.92** |
+| `experimental-bundled-extras` *(umbrella)*        | All bundled-extras transitively: `find`/`xargs`, `sed`, `awk`, fastgrep + ripgrep (both register `grep`/`egrep`/`fgrep`; `rg` and `fastgrep` keep their own names), the utility quick-wins, and the compression family. Inherits fastgrep's MSRV bump (skip the `-fastgrep` flag below to drop the requirement and stay at 1.88). | all       | **1.92** |
 | `experimental-bundled-extras-findutils`           | `find` and `xargs` from `uutils/findutils@0.8.0`                                                                                                          | all       | 1.88  |
-| `experimental-bundled-extras-uutils-sed`          | `sed` from `uutils/sed@0.1.1` (Cycle 0a of `posixutils-rs-integration.md`)                                                                                | all       | 1.88  |
-| `experimental-bundled-extras-awk-rs`              | `awk` from `pegasusheavy/awk-rs@0.1.0` — 100 % POSIX claim, gawk extensions, ~1.6× gawk on 100k-line sums (Cycle 0c-revised)                              | all       | 1.85  |
-| `experimental-bundled-extras-fastgrep`            | `grep` + `fastgrep` aliases from `awnion/fastgrep@0.1.8` — drop-in GNU grep replacement, 2–12× faster, parallel + trigram index (Cycle 0b-revised). Three intentional behavioral deviations from GNU grep — see `CHANGELOG.FORK.md`. | all  | **1.92** |
+| `experimental-bundled-extras-uutils-sed`          | `sed` from `uutils/sed@0.1.1`                                                                                                                             | all       | 1.88  |
+| `experimental-bundled-extras-awk-rs`              | `awk` from `pegasusheavy/awk-rs@0.1.0` — 100 % POSIX claim, gawk extensions, ~1.6× gawk on 100k-line sums                                                 | all       | 1.85  |
+| `experimental-bundled-extras-fastgrep`            | `grep` + `fastgrep` aliases from `awnion/fastgrep@0.1.8` — SIMD-fast, 2–12× faster than GNU grep on Criterion benchmarks; **does NOT support `-P`/PCRE2**. When combined with `-ripgrep` below, ripgrep wins for `grep`/`egrep`/`fgrep` (HashMap order) and `fastgrep` keeps its own name. | all       | **1.92** |
+| `experimental-bundled-extras-ripgrep`             | `rg` (canonical) + `grep`/`egrep`/`fgrep` from a line-based ripgrep-style adapter using `regex` + `pcre2` + `ignore` (the same crate ripgrep uses for gitignore-aware walks). **Supports `-P` (PCRE2)** — the headline reason this exists alongside fastgrep. | all       | 1.88  |
+| `experimental-bundled-extras-utils`               | Utility quick-wins: `which` (via `which` crate), `tree` (in-tree using `walkdir`), `xxd` / `column` / `clear` (pure in-tree), `file` (via `infer`), `id` (libc on Unix, Win32 token API on Windows — fills the gap left by uutils' `cfg(unix)`-gated `uu_id`). | all       | 1.88  |
+| `experimental-bundled-extras-compression`         | Compression family: `tar` (via `tar` + `flate2`), gzip family (`gzip`/`gunzip`/`zcat`/`gzcat` via `flate2`), bzip2 family (`bzip2`/`bunzip2`/`bzcat` via `bzip2` with pure-Rust `libbz2-rs-sys` backend), xz family (`xz`/`unxz`/`xzcat` via `xz2`), zip family (`unzip`/`zipinfo` via `zip`). Archive-creation `zip` not included. | all  | 1.88  |
 | `experimental` *(umbrella)*                       | Convenience meta-feature: `experimental-builtins` + `experimental-bundled-coreutils` + `experimental-load` + `experimental-parser`                        | all       | 1.88  |
 
 **Verify both binaries:**
 
 ```bash
-brush --version    # → brush version 0.3.4 (...)
-bash  --version    # → bash (brush) version 0.3.4 (...)
+brush --version    # → brush version 0.3.9 (...)
+bash  --version    # → bash (brush) version 0.3.9 (...)
+```
+
+**Spot-check the bundled commands:**
+
+```bash
+brush -c 'type rg && type grep && type tar && type tree && type id && type clear'
+# → all "is a shell builtin"
+
+brush -c "echo 'aa1bb' | grep -P '\d'"
+# → aa1bb   (PCRE2 works via the ripgrep-backed grep)
 ```
 
 **Uninstall:**
@@ -166,7 +181,7 @@ bash  --version    # → bash (brush) version 0.3.4 (...)
 cargo uninstall brush-shell
 ```
 
-See [`CHANGELOG.FORK.md`](./CHANGELOG.FORK.md) for the full release notes and per-component version bumps. The Unreleased section covers the Cycle 0 cohort (sed/awk/grep gap-fillers) on top of the v0.3.1 base.
+See [`CHANGELOG.FORK.md`](./CHANGELOG.FORK.md) for the full release notes and per-component version bumps. The latest release is **0.3.9** which folded the ripgrep adapter into the umbrella so the recommended install line above bundles everything in one shot.
 
 
 <details>

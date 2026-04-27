@@ -1,7 +1,7 @@
 [package]
 name = "brush-bundled-extras"
 description = "Adapter wrappers for non-uutils-coreutils utilities bundled into brush-shell (findutils/diffutils/procps/grep/sed/awk as available)"
-version = "0.1.8"
+version = "0.1.9"
 categories.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -127,6 +127,7 @@ default = []
     'extras.fastgrep-all',
     'extras.utils-all',
     'extras.compression-all',
+    'extras.ripgrep-all',
 ]
 
 [lints]

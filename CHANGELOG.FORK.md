@@ -4,6 +4,26 @@ Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brus
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 matching upstream's [`CHANGELOG.md`](./CHANGELOG.md).
 
+## [0.3.9] - 2026-04-28
+
+> Per-component version bumps in this release:
+>
+> | Crate                  | Previous | New     | Why                                                                  |
+> |------------------------|----------|---------|----------------------------------------------------------------------|
+> | `brush-bundled-extras` | 0.1.8    | 0.1.9   | Fold `extras.ripgrep-all` into the `extras.all` umbrella so the user-facing `experimental-bundled-extras` flag now bundles `rg` + ripgrep-backed `grep`/`egrep`/`fgrep` (with PCRE2!) without needing a separate `-ripgrep` flag. `fastgrep` itself stays in the umbrella too — when both are active, ripgrep wins for the four GNU-compat names and `fastgrep` keeps its own name. |
+> | `brush-shell`          | 0.3.8    | 0.3.9   | Dep bump for `brush-bundled-extras 0.1.9`. README updated to document the (now complete) install line, the new feature flags (`-utils`/`-compression`/`-ripgrep`) in the table, and the alternate 1.88-MSRV install path that still includes ripgrep-backed `grep -P`. |
+
+### ✨ Features
+
+- *(extras)* `extras.all` (the umbrella) now layers in `extras.ripgrep-all`. Result: a user installing with `experimental-bundled-extras` gets `rg` + ripgrep-backed `grep`/`egrep`/`fgrep` (PCRE2-capable) for free, alongside fastgrep's `fastgrep` name. Removes the previous "remember to add `-ripgrep` separately" footgun.
+
+### 📚 Documentation
+
+- *(readme)* Update the per-platform install lines' inline comments to list everything the umbrella now bundles (utility quick-wins, compression family, both grep providers).
+- *(readme)* Add new rows to the feature flag table for `experimental-bundled-extras-ripgrep`, `experimental-bundled-extras-utils`, `experimental-bundled-extras-compression`.
+- *(readme)* Rewrite the "Alternate install for rustc 1.88–1.91" section — it no longer means "no `grep`"; users on the lower toolchain now get full `grep`/`egrep`/`fgrep`/`rg` (with `-P`!) via the ripgrep adapter, just no fastgrep alongside.
+- *(readme)* Bump the example `--version` outputs from 0.3.4 → 0.3.9; add a spot-check block (`type rg && type grep && grep -P …`).
+
 ## [0.3.8] - 2026-04-28
 
 > Per-component version bumps in this release:
