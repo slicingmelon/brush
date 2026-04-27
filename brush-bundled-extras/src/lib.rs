@@ -42,10 +42,11 @@ use std::ffi::OsString;
 #[cfg(feature = "extras.grep")]
 mod grep_adapter;
 
-/// Signature of a bundled command's entry point — same shape as
-/// `brush-coreutils-builtins::BundledFn`. Re-declared here to avoid a
-/// dependency on that crate; consumers (brush-shell) merge the two
-/// registries by `HashMap::extend`.
+/// Signature of a bundled command's entry point.
+///
+/// Same shape as `brush-coreutils-builtins::BundledFn`. Re-declared
+/// here to avoid a dependency on that crate; consumers (brush-shell)
+/// merge the two registries by `HashMap::extend`.
 pub type BundledFn = fn(args: Vec<OsString>) -> i32;
 
 /// Returns the set of bundled commands enabled by feature flags.
@@ -87,13 +88,17 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
 
     #[cfg(feature = "extras.grep")]
     {
-        // Both names dispatch to the same adapter — matches upstream
-        // README's "installed binary is called `grep`" intent and gives
-        // users an explicit `fastgrep` alias when they want to be sure
-        // they're hitting the bundled implementation rather than a
-        // PATH `grep`.
+        // `grep` / `fastgrep` dispatch directly to the upstream CLI;
+        // `egrep` / `fgrep` are GNU-style aliases that prepend `-E`
+        // (extended regex) / `-F` (fixed string) before delegating —
+        // matching the historical behavior agents and shell scripts
+        // expect. See `docs/planning/bundled-extras-coverage-expansion.md`
+        // Cycle 0a. fastgrep's `GNU_GREP_COMPAT.md` confirms `-E` and
+        // `-F` are both supported.
         m.insert("grep".to_string(), grep_adapter::grep_main as BundledFn);
         m.insert("fastgrep".to_string(), grep_adapter::grep_main as BundledFn);
+        m.insert("egrep".to_string(), grep_adapter::egrep_main as BundledFn);
+        m.insert("fgrep".to_string(), grep_adapter::fgrep_main as BundledFn);
     }
 
     m

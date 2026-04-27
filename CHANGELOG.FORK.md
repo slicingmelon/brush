@@ -10,8 +10,58 @@ Upstream changes are tracked in [`CHANGELOG.md`](./CHANGELOG.md).
 > | Crate                  | Previous | New     | Why                                                                  |
 > |------------------------|----------|---------|----------------------------------------------------------------------|
 > | `brush-core`           | 0.4.1    | 0.4.2   | Conditional `CREATE_NO_WINDOW` — fix a v0.3.1 regression where bundled coreutils produced no output when brush ran interactively from a real Windows console. |
-> | `brush-bundled-extras` | 0.1.0    | 0.1.3   | Cycle 0a — wire `uutils/sed = "0.1.1"` via `sed_adapter` (`extras.sed` / `extras.uutils-sed-all` features). Cycle 0c-revised — wire `pegasusheavy/awk-rs = "0.1.0"` via `awk_adapter` (`extras.awk` / `extras.awk-rs-all` features). Cycle 0b-revised — wire `awnion/fastgrep = "0.1.8"` via `grep_adapter::grep_main` registered as both `grep` and `fastgrep` (`extras.grep` / `extras.fastgrep-all` features). All per `posixutils-rs-integration.md`. |
+> | `brush-bundled-extras` | 0.1.0    | 0.1.4   | Cycle 0a — wire `uutils/sed = "0.1.1"` via `sed_adapter` (`extras.sed` / `extras.uutils-sed-all` features). Cycle 0c-revised — wire `pegasusheavy/awk-rs = "0.1.0"` via `awk_adapter` (`extras.awk` / `extras.awk-rs-all` features). Cycle 0b-revised — wire `awnion/fastgrep = "0.1.8"` via `grep_adapter::grep_main` registered as both `grep` and `fastgrep` (`extras.grep` / `extras.fastgrep-all` features). All per `posixutils-rs-integration.md`. **0.1.4** adds `egrep` / `fgrep` aliases dispatching to the same fastgrep adapter with `-E` / `-F` pre-pended (Cycle 0a of `bundled-extras-coverage-expansion.md`). |
 > | `brush-shell`          | 0.3.1    | 0.3.4   | New `experimental-bundled-extras-uutils-sed` (Cycle 0a), `experimental-bundled-extras-awk-rs` (Cycle 0c-revised), and `experimental-bundled-extras-fastgrep` (Cycle 0b-revised) feature flags; `bundled.rs` cfg-gate extended to merge the extras registry when only one of them is enabled. The `-fastgrep` flag carries an MSRV requirement of rustc ≥ 1.92 (above the workspace MSRV of 1.88.0) — opt-in only. |
+
+### ✨ Features
+
+#### `feat(extras): add egrep / fgrep aliases to fastgrep adapter`
+
+Cycle 0a of [`docs/planning/bundled-extras-coverage-expansion.md`](./docs/planning/bundled-extras-coverage-expansion.md).
+Closes the `egrep` / `fgrep` registration gap flagged in
+[`docs/reference/bundled-tools-index.md`](./docs/reference/bundled-tools-index.md)
+§E ("genuinely useful gaps"). Both names now register as bundled
+builtins dispatching to the existing fastgrep adapter, with `-E` /
+`-F` pre-pended after `argv[0]` to mirror GNU `egrep` / `fgrep`
+semantics.
+
+| Smoke check (Windows, rustc 1.95.0 host build) | Output |
+|---|---|
+| `brush -c "type egrep && type fgrep"` | `egrep is a shell builtin` / `fgrep is a shell builtin` |
+| `brush -c "printf 'apple\nbanana\ncherry\n' \| egrep '^a\|^c'"` | `apple` / `cherry` (alternation works) |
+| `brush -c "printf 'a.b\na+b\nab\n' \| fgrep 'a.b'"` | `a.b` only (literal match, not regex) |
+
+fastgrep's [`GNU_GREP_COMPAT.md`](https://github.com/awnion/fastgrep/blob/main/GNU_GREP_COMPAT.md)
+confirms both `-E` and `-F` are supported, so the alias semantics are
+correct. The implementation is two thin wrappers — `egrep_main` and
+`fgrep_main` — that prepend the appropriate flag before delegating to
+`grep_main`. Both new wrappers and a small helper (`prepend_flag_after_argv0`)
+land in [`brush-bundled-extras/src/grep_adapter.rs`](./brush-bundled-extras/src/grep_adapter.rs).
+
+The `grep` → fastgrep registration is left in place; per the
+bundled-extras-coverage-expansion plan Cycle 3, ripgrep will eventually
+take over `grep` / `egrep` / `fgrep` (so `-P` works) and `fastgrep`
+will retain its own name for users who want the SIMD fast path.
+
+**Drive-by clippy 1.95 fixes** included in the same commit (these
+landed clean under the rustc the original grep_adapter was authored
+against, but newer clippy nursery/pedantic surfaces them):
+
+- `result.path = lp.clone()` → `result.path.clone_from(lp)` (assigning_clones)
+- `let filter_for_walker = candidate_filter.clone()` → drop the redundant clone
+- Split `BundledFn`'s doc-comment first paragraph (too_long_first_doc_paragraph)
+- `#[allow(clippy::significant_drop_tightening)]` added to `grep_adapter`'s
+  module-level allow set (the relevant `stdin().lock()` would require
+  invasive scope refactoring upstream of brush; allowed with the rest of
+  the upstream-port-derived allows)
+
+**Files changed**
+
+- `brush-bundled-extras/Cargo.toml` — version 0.1.3 → 0.1.4
+- `brush-bundled-extras/src/lib.rs` — register `egrep` and `fgrep`; split BundledFn doc paragraph
+- `brush-bundled-extras/src/grep_adapter.rs` — add `egrep_main`, `fgrep_main`, `prepend_flag_after_argv0`; clippy fixes; module-level allow extended
+- `docs/planning/bundled-extras-coverage-expansion.md` — new planning doc covering Cycles 0a / 1 / 2 / 3 / 4
+- `docs/reference/bundled-tools-index.md` — Section D table extended; §E gap entries marked closed
 
 ### 📋 Process / Decisions
 

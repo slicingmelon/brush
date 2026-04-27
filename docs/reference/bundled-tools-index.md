@@ -181,11 +181,17 @@ Source:
 | `awk` | `pegasusheavy/awk-rs` | 0.1.0 | `experimental-bundled-extras-awk-rs` | 1.85 |
 | `grep` | `awnion/fastgrep` | 0.1.8 | `experimental-bundled-extras-fastgrep` | **1.92** |
 | `fastgrep` | (alias of `grep`) | — | `experimental-bundled-extras-fastgrep` | **1.92** |
+| `egrep` | (alias of `grep` with `-E` pre-pended) | — | `experimental-bundled-extras-fastgrep` | **1.92** |
+| `fgrep` | (alias of `grep` with `-F` pre-pended) | — | `experimental-bundled-extras-fastgrep` | **1.92** |
 
-`grep` and `fastgrep` resolve to the **same** adapter (intentional: gives
-users a name guaranteed to hit the bundled implementation if there's
-ever a `grep` higher on PATH). See `brush-bundled-extras/src/lib.rs`
-lines 88–97.
+`grep` / `fastgrep` / `egrep` / `fgrep` all resolve to the same fastgrep
+adapter. `grep` and `fastgrep` dispatch raw; `egrep` / `fgrep` insert
+`-E` / `-F` immediately after `argv[0]` to mirror GNU `egrep` / `fgrep`
+semantics. See `brush-bundled-extras/src/lib.rs` and the
+`grep_adapter::{egrep_main, fgrep_main}` wrappers. Per
+[`docs/planning/bundled-extras-coverage-expansion.md`](../planning/bundled-extras-coverage-expansion.md)
+Cycle 0a, ripgrep is planned to take over `grep` / `egrep` / `fgrep`
+in Cycle 3 — `fastgrep` will retain its own name then.
 
 ## Section E — What this install does **NOT** include
 
@@ -265,7 +271,7 @@ Resolved via PATH from the user's Windows env (verified in conversation):
 | `which` | command lookup | covered by builtin `type`; not really a gap |
 | `xxd` | hex dump | low-value |
 | `gawk` | gnu awk variant | covered by bundled `awk` |
-| `egrep`/`fgrep` | grep aliases | not aliased by fastgrep adapter; modern GNU grep (3.8+, 2022) deprecated those binaries in favor of `grep -E` / `grep -F`, so this may be a deliberate omission rather than a bug — worth deciding |
+| ~~`egrep`/`fgrep`~~ | grep aliases | **CLOSED 2026-04-28** — both now registered as bundled aliases of fastgrep with `-E`/`-F` pre-pended (Cycle 0a of `bundled-extras-coverage-expansion.md`) |
 | `ps` | process listing | high-value but tricky cross-platform |
 | `kill` | signal sender | bundled-extras candidate (uutils' is Unix-only); on Windows the use case is "kill PID" which `taskkill.exe` covers |
 | `tee` | already bundled (uutils) ✓ | — |
@@ -273,9 +279,8 @@ Resolved via PATH from the user's Windows env (verified in conversation):
 | `mktemp` | already bundled (uutils) ✓ | — |
 | `tac` | already bundled (uutils) ✓ | — |
 
-The `egrep`/`fgrep` aliasing gap is worth a separate sweep — same
-adapter, two extra `m.insert(...)` calls in
-`brush-bundled-extras/src/lib.rs`.
+_(The `egrep`/`fgrep` gap was closed in Cycle 0a of
+[`docs/planning/bundled-extras-coverage-expansion.md`](../planning/bundled-extras-coverage-expansion.md).)_
 
 ### From Git-for-Windows `mingw64\bin` — almost all DLLs and Avalonia GUI
 

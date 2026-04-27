@@ -1,7 +1,7 @@
 [package]
 name = "brush-bundled-extras"
 description = "Adapter wrappers for non-uutils-coreutils utilities bundled into brush-shell (findutils/diffutils/procps/grep/sed/awk as available)"
-version = "0.1.3"
+version = "0.1.4"
 categories.workspace = true
 edition.workspace = true
 keywords.workspace = true
