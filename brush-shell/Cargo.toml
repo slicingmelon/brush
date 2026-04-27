@@ -1,7 +1,7 @@
 [package]
 name = "brush-shell"
 description = "Rust-implemented shell focused on POSIX and bash compatibility"
-version = "0.3.4"
+version = "0.3.5"
 authors.workspace = true
 categories.workspace = true
 edition.workspace = true
@@ -130,6 +130,13 @@ experimental-bundled-extras-fastgrep = [
     "dep:brush-bundled-extras",
     "brush-bundled-extras/extras.fastgrep-all",
 ]
+# Cycle 1 of `bundled-extras-coverage-expansion.md` — utility quick wins:
+# `which`, `tree`, `xxd`, `column`, `file`. All Windows-friendly; no MSRV
+# bump required (workspace 1.88.0 covers all the deps).
+experimental-bundled-extras-utils = [
+    "dep:brush-bundled-extras",
+    "brush-bundled-extras/extras.utils-all",
+]
 experimental-load = ["dep:serde_json", "brush-core/serde"]
 experimental-parser = [
     "brush-core/experimental-parser",
@@ -143,7 +150,7 @@ workspace = true
 [dependencies]
 brush-core = { version = "^0.4.0", path = "../brush-core" }
 brush-builtins = { version = "^0.1.0", path = "../brush-builtins" }
-brush-bundled-extras = { version = "^0.1.3", path = "../brush-bundled-extras", optional = true }
+brush-bundled-extras = { version = "^0.1.5", path = "../brush-bundled-extras", optional = true }
 brush-coreutils-builtins = { version = "^0.1.0", path = "../brush-coreutils-builtins", optional = true }
 brush-experimental-builtins = { version = "^0.1.0", path = "../brush-experimental-builtins", optional = true }
 clap = { version = "4.6.0", features = ["derive", "env"] }

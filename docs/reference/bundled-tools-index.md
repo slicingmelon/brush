@@ -183,6 +183,11 @@ Source:
 | `fastgrep` | (alias of `grep`) | — | `experimental-bundled-extras-fastgrep` | **1.92** |
 | `egrep` | (alias of `grep` with `-E` pre-pended) | — | `experimental-bundled-extras-fastgrep` | **1.92** |
 | `fgrep` | (alias of `grep` with `-F` pre-pended) | — | `experimental-bundled-extras-fastgrep` | **1.92** |
+| `which` | crates.io `which` | 6 | `experimental-bundled-extras-utils` | 1.88 |
+| `tree` | in-tree (uses `walkdir`) | — | `experimental-bundled-extras-utils` | 1.88 |
+| `xxd` | in-tree (no deps) | — | `experimental-bundled-extras-utils` | 1.88 |
+| `column` | in-tree (no deps) | — | `experimental-bundled-extras-utils` | 1.88 |
+| `file` | crates.io `infer` | 0.16 | `experimental-bundled-extras-utils` | 1.88 |
 
 `grep` / `fastgrep` / `egrep` / `fgrep` all resolve to the same fastgrep
 adapter. `grep` and `fastgrep` dispatch raw; `egrep` / `fgrep` insert
@@ -263,13 +268,14 @@ Resolved via PATH from the user's Windows env (verified in conversation):
 |---|---|---|
 | `tar` | archive | high-value bundle candidate |
 | `bzip2`/`gzip`/`xz`/`zstd` family | compression | medium-value; `flate2`/`bzip2`/`xz2` crates exist |
-| `column` | columnar formatter | low-value, low-cost |
+| ~~`column`~~ | columnar formatter | **CLOSED 2026-04-28** — bundled in-tree (Cycle 1 of `bundled-extras-coverage-expansion.md`) |
 | `getopt` | shellopts (different from `getopts`) | low-value |
-| `iconv` | text encoding | medium-value; PowerShell often has it |
-| `file` | type detection | medium-value |
+| `iconv` | text encoding | medium-value; deferred to Cycle 4 |
+| ~~`file`~~ | type detection | **CLOSED 2026-04-28** — bundled via `infer` crate (Cycle 1 of `bundled-extras-coverage-expansion.md`) |
 | `less` | pager | high-value but interactive |
-| `which` | command lookup | covered by builtin `type`; not really a gap |
-| `xxd` | hex dump | low-value |
+| ~~`which`~~ | command lookup | **CLOSED 2026-04-28** — bundled via `which` crate (Cycle 1 of `bundled-extras-coverage-expansion.md`) |
+| ~~`xxd`~~ | hex dump | **CLOSED 2026-04-28** — bundled in-tree (Cycle 1 of `bundled-extras-coverage-expansion.md`) |
+| ~~`tree`~~ | directory listing | **CLOSED 2026-04-28** — bundled in-tree using `walkdir` (Cycle 1 of `bundled-extras-coverage-expansion.md`) |
 | `gawk` | gnu awk variant | covered by bundled `awk` |
 | ~~`egrep`/`fgrep`~~ | grep aliases | **CLOSED 2026-04-28** — both now registered as bundled aliases of fastgrep with `-E`/`-F` pre-pended (Cycle 0a of `bundled-extras-coverage-expansion.md`) |
 | `ps` | process listing | high-value but tricky cross-platform |

@@ -42,6 +42,17 @@ use std::ffi::OsString;
 #[cfg(feature = "extras.grep")]
 mod grep_adapter;
 
+#[cfg(feature = "extras.which")]
+mod which_adapter;
+#[cfg(feature = "extras.tree")]
+mod tree_adapter;
+#[cfg(feature = "extras.xxd")]
+mod xxd_adapter;
+#[cfg(feature = "extras.column")]
+mod column_adapter;
+#[cfg(feature = "extras.file")]
+mod file_adapter;
+
 /// Signature of a bundled command's entry point.
 ///
 /// Same shape as `brush-coreutils-builtins::BundledFn`. Re-declared
@@ -99,6 +110,28 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
         m.insert("fastgrep".to_string(), grep_adapter::grep_main as BundledFn);
         m.insert("egrep".to_string(), grep_adapter::egrep_main as BundledFn);
         m.insert("fgrep".to_string(), grep_adapter::fgrep_main as BundledFn);
+    }
+
+    // Cycle 1 utility quick-wins (bundled-extras-coverage-expansion).
+    #[cfg(feature = "extras.which")]
+    {
+        m.insert("which".to_string(), which_adapter::which_main as BundledFn);
+    }
+    #[cfg(feature = "extras.tree")]
+    {
+        m.insert("tree".to_string(), tree_adapter::tree_main as BundledFn);
+    }
+    #[cfg(feature = "extras.xxd")]
+    {
+        m.insert("xxd".to_string(), xxd_adapter::xxd_main as BundledFn);
+    }
+    #[cfg(feature = "extras.column")]
+    {
+        m.insert("column".to_string(), column_adapter::column_main as BundledFn);
+    }
+    #[cfg(feature = "extras.file")]
+    {
+        m.insert("file".to_string(), file_adapter::file_main as BundledFn);
     }
 
     m

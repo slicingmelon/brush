@@ -495,14 +495,17 @@ dependencies = [
 
 [[package]]
 name = "brush-bundled-extras"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "awk-rs",
  "clap",
  "fastgrep",
  "findutils",
+ "infer",
  "kanal",
  "sed",
+ "walkdir",
+ "which 6.0.3",
 ]
 
 [[package]]
@@ -727,7 +730,7 @@ dependencies = [
 
 [[package]]
 name = "brush-shell"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -777,7 +780,7 @@ dependencies = [
  "uuid",
  "version-compare",
  "walkdir",
- "which",
+ "which 8.0.2",
 ]
 
 [[package]]
@@ -1369,7 +1372,7 @@ dependencies = [
  "filedescriptor",
  "mio",
  "parking_lot",
- "rustix",
+ "rustix 1.1.4",
  "serde",
  "signal-hook",
  "signal-hook-mio",
@@ -1859,7 +1862,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
 dependencies = [
  "cfg-if",
- "rustix",
+ "rustix 1.1.4",
  "windows-sys 0.59.0",
 ]
 
@@ -2305,6 +2308,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
+name = "home"
+version = "0.5.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc627f471c528ff0c4a49e1d5e60450c8f6461dd6d10ba9dcd3a61d3dff7728d"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "hostname"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2694,6 +2706,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "infer"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc150e5ce2330295b8616ce0e3f53250e53af31759a9dbedad1621ba29151847"
+
+[[package]]
 name = "inherent"
 version = "1.0.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2975,6 +2993,12 @@ dependencies = [
  "plain",
  "redox_syscall 0.7.4",
 ]
+
+[[package]]
+name = "linux-raw-sys"
+version = "0.4.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d26c52dbd32dccf2d10cac7725f8eae5296885fb5703b261f7d0a0739ec807ab"
 
 [[package]]
 name = "linux-raw-sys"
@@ -3893,7 +3917,7 @@ dependencies = [
  "chrono",
  "flate2",
  "procfs-core",
- "rustix",
+ "rustix 1.1.4",
 ]
 
 [[package]]
@@ -3913,7 +3937,7 @@ version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "71cec9e2670207c5ebb9e477763c74436af3b9091dd550b9fb3c1bec7f3ea266"
 dependencies = [
- "rustix",
+ "rustix 1.1.4",
 ]
 
 [[package]]
@@ -4219,6 +4243,19 @@ dependencies = [
 
 [[package]]
 name = "rustix"
+version = "0.38.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fdb5bc1ae2baa591800df16c9ca78619bf65c0488b41b96ccec5d11220d8c154"
+dependencies = [
+ "bitflags 2.11.1",
+ "errno",
+ "libc",
+ "linux-raw-sys 0.4.15",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "rustix"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
@@ -4226,7 +4263,7 @@ dependencies = [
  "bitflags 2.11.1",
  "errno",
  "libc",
- "linux-raw-sys",
+ "linux-raw-sys 0.12.1",
  "windows-sys 0.61.2",
 ]
 
@@ -4727,7 +4764,7 @@ dependencies = [
  "fastrand",
  "getrandom 0.4.2",
  "once_cell",
- "rustix",
+ "rustix 1.1.4",
  "windows-sys 0.61.2",
 ]
 
@@ -4737,7 +4774,7 @@ version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "230a1b821ccbd75b185820a1f1ff7b14d21da1e442e22c0863ea5f08771a8874"
 dependencies = [
- "rustix",
+ "rustix 1.1.4",
  "windows-sys 0.61.2",
 ]
 
@@ -4766,7 +4803,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c292571fb159e65c78c7c88a96e5ddfc326d6819e49b3a040d7b0aa3497925b"
 dependencies = [
  "test-with-derive",
- "which",
+ "which 8.0.2",
 ]
 
 [[package]]
@@ -4780,7 +4817,7 @@ dependencies = [
  "quote",
  "regex",
  "syn 2.0.117",
- "which",
+ "which 8.0.2",
 ]
 
 [[package]]
@@ -5265,7 +5302,7 @@ dependencies = [
  "clap",
  "fluent",
  "memchr",
- "rustix",
+ "rustix 1.1.4",
  "thiserror 2.0.18",
  "uucore 0.8.0",
  "winapi-util",
@@ -5425,7 +5462,7 @@ dependencies = [
  "libc",
  "parse_datetime",
  "regex",
- "rustix",
+ "rustix 1.1.4",
  "uucore 0.8.0",
  "windows-sys 0.61.2",
 ]
@@ -5453,7 +5490,7 @@ checksum = "60e8314d0f47b1855e32fde923415fd1473e0808a6bb94d8703ae95a2c7ff1b6"
 dependencies = [
  "clap",
  "fluent",
- "rustix",
+ "rustix 1.1.4",
  "thiserror 2.0.18",
  "unicode-width 0.2.2",
  "uucore 0.8.0",
@@ -5785,7 +5822,7 @@ checksum = "99f996d7f444f1bc97e0c5410f4be5a5bfc5716946535d62b201a828af75e633"
 dependencies = [
  "clap",
  "fluent",
- "rustix",
+ "rustix 1.1.4",
  "uucore 0.8.0",
 ]
 
@@ -5864,7 +5901,7 @@ checksum = "253d12af4189525e5b68a71bef9d15e81d7a183c3117b7f7be7e37697411710d"
 dependencies = [
  "clap",
  "fluent",
- "rustix",
+ "rustix 1.1.4",
  "uucore 0.8.0",
 ]
 
@@ -6344,7 +6381,7 @@ dependencies = [
  "libc",
  "memchr",
  "notify",
- "rustix",
+ "rustix 1.1.4",
  "same-file",
  "uucore 0.8.0",
  "windows-sys 0.61.2",
@@ -6399,7 +6436,7 @@ dependencies = [
  "jiff",
  "libc",
  "parse_datetime",
- "rustix",
+ "rustix 1.1.4",
  "thiserror 2.0.18",
  "uucore 0.8.0",
  "windows-sys 0.61.2",
@@ -6449,7 +6486,7 @@ dependencies = [
  "clap",
  "fluent",
  "rustc-hash",
- "rustix",
+ "rustix 1.1.4",
  "string-interner",
  "thiserror 2.0.18",
  "uucore 0.8.0",
@@ -6463,7 +6500,7 @@ checksum = "45d335a86d34b65fd220b6736d2a4f16b56f55b24ab3e68909ea1339182a63c6"
 dependencies = [
  "clap",
  "fluent",
- "rustix",
+ "rustix 1.1.4",
  "uucore 0.8.0",
 ]
 
@@ -6559,7 +6596,7 @@ dependencies = [
  "clap",
  "fluent",
  "libc",
- "rustix",
+ "rustix 1.1.4",
  "thiserror 2.0.18",
  "unicode-width 0.2.2",
  "uucore 0.8.0",
@@ -6682,7 +6719,7 @@ dependencies = [
  "os_display",
  "procfs",
  "rustc-hash",
- "rustix",
+ "rustix 1.1.4",
  "selinux",
  "sha1",
  "sha2",
@@ -6960,6 +6997,18 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "which"
+version = "6.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4ee928febd44d98f2f459a4a79bd4d928591333a494a10a868418ac1b39cf1f"
+dependencies = [
+ "either",
+ "home",
+ "rustix 0.38.44",
+ "winsafe",
 ]
 
 [[package]]
@@ -7540,6 +7589,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "winsafe"
+version = "0.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
+
+[[package]]
 name = "wit-bindgen"
 version = "0.51.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7658,7 +7713,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
 dependencies = [
  "libc",
- "rustix",
+ "rustix 1.1.4",
 ]
 
 [[package]]
