@@ -156,7 +156,9 @@ impl<R: std::io::BufRead> Parser<R> {
             }
             #[cfg(feature = "winnow-parser")]
             ParserImpl::Winnow => {
-                // Read entire input to string for winnow_str parser
+                // Read entire input to string for winnow_str parser.
+                // TODO(crlf): when this path is implemented, normalize CRLF -> LF
+                // here too (the tokenizer-based path handles it in `fill_buffer`).
                 let mut input_str = String::new();
                 std::io::Read::read_to_string(&mut self.reader, &mut input_str).map_err(|e| {
                     crate::error::ParseError::Tokenizing {

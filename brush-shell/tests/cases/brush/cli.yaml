@@ -87,3 +87,22 @@ cases:
       - "echo forward_compat"
     expected_exit_code: 0
     expected_stdout: "forward_compat\n"
+
+  - name: "CRLF script file is accepted"
+    test_files:
+      - path: "crlf.sh"
+        contents: "echo crlf-one\r\necho crlf-two\r\n"
+    args:
+      - "crlf.sh"
+    expected_exit_code: 0
+    expected_stdout: "crlf-one\ncrlf-two\n"
+
+  - name: "CRLF sourced file is accepted"
+    test_files:
+      - path: "rc.sh"
+        contents: "export CRLF_TEST=ok\r\n"
+    args:
+      - "-c"
+      - ". rc.sh; echo $CRLF_TEST"
+    expected_exit_code: 0
+    expected_stdout: "ok\n"

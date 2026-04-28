@@ -4,6 +4,32 @@ Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brus
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 matching upstream's [`CHANGELOG.md`](./CHANGELOG.md).
 
+## [0.3.12] - 2026-04-28
+
+> Per-component version bumps in this release:
+>
+> | Crate          | Previous | New     | Why                                                                  |
+> |----------------|----------|---------|----------------------------------------------------------------------|
+> | `brush-parser` | 0.3.0    | 0.3.1   | Tokenizer now normalizes CRLF (`\r\n`) line endings to LF before parsing, matching bash 5.x / zsh / dash. Previously, scripts and config files saved with Windows line endings (the default for VSCode, Notepad, PowerShell `>` redirection) failed with `syntax error at end of input` — a show-stopper for brush as a daily-driver shell on Windows. |
+> | `brush-shell`  | 0.3.11   | 0.3.12  | Picks up the brush-parser fix transitively; no source change here. |
+
+### 🐛 Bug Fixes
+
+- *(parser)* Scripts with CRLF (`\r\n`) line endings are now accepted and tokenized identically to LF inputs. Fix lives in [`brush-parser/src/tokenizer.rs`](brush-parser/src/tokenizer.rs)'s `fill_buffer` — a new one-char lookahead shared by `next_char` and `peek_char`, so CRLF normalization is consistent across both. Bare `\r` (not followed by `\n`) passes through unchanged, matching bash behavior on `printf 'echo a\rb' | bash`. Every entry point benefits transparently: `-c` strings, `source` / `.`, script execution, and stdin.
+
+**Smoke verification on Windows** (rustc 1.95.0, before/after fix):
+
+```bash
+# Pre-fix (0.3.11):
+$ printf 'echo a\r\necho b\r\n' > /tmp/crlf.sh && brush /tmp/crlf.sh
+error: /tmp/crlf.sh: syntax error at end of input
+
+# Post-fix (0.3.12):
+$ brush /tmp/crlf.sh
+a
+b
+```
+
 ## [0.3.11] - 2026-04-28
 
 > Per-component version bumps in this release:

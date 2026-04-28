@@ -245,6 +245,9 @@ impl Default for TokenizerOptions {
 /// A tokenizer for shell scripts.
 pub(crate) struct Tokenizer<'a, R: ?Sized + std::io::BufRead> {
     char_reader: std::iter::Peekable<utf8_chars::Chars<'a, R>>,
+    /// Lookahead buffer shared by `next_char` / `peek_char` so CRLF
+    /// normalization is consistent across both.
+    buffered: Option<char>,
     cross_state: CrossTokenParseState,
     options: TokenizerOptions,
 }
@@ -537,6 +540,7 @@ impl<'a, R: ?Sized + std::io::BufRead> Tokenizer<'a, R> {
         Tokenizer {
             options: options.clone(),
             char_reader: reader.chars().peekable(),
+            buffered: None,
             cross_state: CrossTokenParseState {
                 cursor: SourcePosition {
                     index: 0,
@@ -556,12 +560,28 @@ impl<'a, R: ?Sized + std::io::BufRead> Tokenizer<'a, R> {
         Some(self.cross_state.cursor.clone())
     }
 
-    fn next_char(&mut self) -> Result<Option<char>, TokenizerError> {
+    /// Materializes one normalized char into `buffered` (CRLF -> LF; bare \r kept).
+    fn fill_buffer(&mut self) -> Result<(), TokenizerError> {
+        if self.buffered.is_some() {
+            return Ok(());
+        }
         let c = self
             .char_reader
             .next()
             .transpose()
             .map_err(TokenizerError::ReadError)?;
+        self.buffered = if c == Some('\r') && matches!(self.char_reader.peek(), Some(&Ok('\n'))) {
+            let _ = self.char_reader.next();
+            Some('\n')
+        } else {
+            c
+        };
+        Ok(())
+    }
+
+    fn next_char(&mut self) -> Result<Option<char>, TokenizerError> {
+        self.fill_buffer()?;
+        let c = self.buffered.take();
 
         if let Some(ch) = c {
             if ch == '\n' {
@@ -582,13 +602,8 @@ impl<'a, R: ?Sized + std::io::BufRead> Tokenizer<'a, R> {
     }
 
     fn peek_char(&mut self) -> Result<Option<char>, TokenizerError> {
-        match self.char_reader.peek() {
-            Some(result) => match result {
-                Ok(c) => Ok(Some(*c)),
-                Err(_) => Err(TokenizerError::FailedDecoding),
-            },
-            None => Ok(None),
-        }
+        self.fill_buffer()?;
+        Ok(self.buffered)
     }
 
     pub fn next_token(&mut self) -> Result<TokenizeResult, TokenizerError> {
@@ -1702,5 +1717,38 @@ HERE2
         assert_eq!(unquote_str(r"'hello'"), "hello");
         assert_eq!(unquote_str(r#""hel\"lo""#), r#"hel"lo"#);
         assert_eq!(unquote_str(r"'hel\'lo'"), r"hel'lo");
+    }
+
+    #[test]
+    fn tokenize_crlf_equivalent_to_lf() -> Result<()> {
+        let crlf = tokenize_str("echo one\r\necho two\r\n")?;
+        let lf = tokenize_str("echo one\necho two\n")?;
+        assert_eq!(crlf, lf);
+        Ok(())
+    }
+
+    #[test]
+    fn tokenize_crlf_terminates_comment() -> Result<()> {
+        let crlf = tokenize_str("a #comment\r\nb")?;
+        let lf = tokenize_str("a #comment\nb")?;
+        assert_eq!(crlf, lf);
+        Ok(())
+    }
+
+    #[test]
+    fn tokenize_lone_cr_not_stripped() -> Result<()> {
+        // Bare \r (no trailing \n) passes through unchanged - matches bash.
+        // \r is not blank/operator, so it stays inside the second word: 2 tokens
+        // (echo + a\rb), not the 4 tokens produced by a newline-splitting LF.
+        let tokens = tokenize_str("echo a\rb")?;
+        assert_eq!(tokens.len(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn tokenize_utf8_in_comment_succeeds() -> Result<()> {
+        // Regression guard: U+2014 (em-dash, e2 80 94) inside a # comment.
+        let _ = tokenize_str("# header \u{2014}\necho ok\n")?;
+        Ok(())
     }
 }
