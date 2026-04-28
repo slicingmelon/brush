@@ -276,7 +276,7 @@ fn install_panic_handlers() {
     human_panic::setup_panic!(
         human_panic::Metadata::new(productinfo::PRODUCT_NAME, productinfo::PRODUCT_VERSION)
             .homepage(env!("CARGO_PKG_HOMEPAGE"))
-            .support("please post a GitHub issue at https://github.com/reubeno/brush/issues/new")
+            .support("please post a GitHub issue at https://github.com/slicingmelon/brush/issues/new")
     );
 
     //

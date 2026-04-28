@@ -4,6 +4,18 @@ Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brus
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 matching upstream's [`CHANGELOG.md`](./CHANGELOG.md).
 
+## [0.3.10] - 2026-04-28
+
+> Per-component version bumps in this release:
+>
+> | Crate         | Previous | New     | Why                                                                  |
+> |---------------|----------|---------|----------------------------------------------------------------------|
+> | `brush-shell` | 0.3.9    | 0.3.10  | Repository URL fix — `brush --version` was printing `https://github.com/reubeno/brush` (upstream) instead of the fork URL. The version banner pulls from `env!("CARGO_PKG_REPOSITORY")` which reads the workspace `Cargo.toml`'s `repository` field; that field was inherited from upstream and never updated for the fork. |
+
+### 🐛 Bug Fixes
+
+- *(banner)* `brush --version` / `bash --version` now report `https://github.com/slicingmelon/brush` instead of upstream URL. Updates the workspace `Cargo.toml`'s `repository` field (which `productinfo::PRODUCT_REPO` reads via `env!("CARGO_PKG_REPOSITORY")`) plus two stale URLs in `args.rs` (long description) and `entry.rs` (panic-handler support message).
+
 ## [0.3.9] - 2026-04-28
 
 > Per-component version bumps in this release:
