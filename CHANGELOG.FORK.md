@@ -4,6 +4,94 @@ Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brus
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 matching upstream's [`CHANGELOG.md`](./CHANGELOG.md).
 
+## [0.3.13] - 2026-04-29
+
+> Per-component version bumps in this release:
+>
+> | Crate                          | Previous | New     | Why                                                                                                                                  |
+> |--------------------------------|----------|---------|--------------------------------------------------------------------------------------------------------------------------------------|
+> | `brush-core`                   | 0.4.3    | 0.4.4   | Adds `PathArgPolicy` enum and `BundledDispatch::new` builder; `BundledDispatch` is now `#[non_exhaustive]` (downstream impact: replace struct-literal construction with the builder). |
+> | `brush-experimental-builtins`  | 0.1.0    | 0.1.1   | Adds the `cygpath` builtin behind feature `builtin.cygpath` (default-on).                                                           |
+> | `brush-shell`                  | 0.3.12   | 0.3.13  | Wires Cycle 2's per-tool `path_arg_policy_for` table into bundled-tool registration. Picks up the brush-core / experimental-builtins changes transitively. |
+
+### ✨ Features
+
+- *(builtins)* New experimental `cygpath` builtin (Cycle 1 of
+  [`docs/planning/path-conversion-msys.md`](docs/planning/path-conversion-msys.md)).
+  Mirrors Cygwin's [`cygpath(1)`](https://cygwin.com/cygwin-ug-net/cygpath.html)
+  flag subset — `-u/--unix`, `-w/--windows`, `-m/--mixed`, `-a/--absolute`,
+  `-p/--path` — for explicit POSIX↔Windows path conversion. Lives in
+  [`brush-experimental-builtins/src/cygpath.rs`](brush-experimental-builtins/src/cygpath.rs)
+  behind the `builtin.cygpath` feature (default-on for the experimental-builtins
+  crate). On non-Windows platforms the conversion is a no-op passthrough so
+  portable scripts using `$(cygpath -w "$x")` work unchanged on Linux.
+
+  ```bash
+  $ brush -c 'cygpath -w /c/Users/foo'
+  C:\Users\foo
+  $ brush -c 'cygpath -u "C:\Users\foo"'
+  /c/Users/foo
+  $ brush -c 'cygpath -p -w "/c/a:/d/b"'
+  C:\a;D:\b
+  ```
+
+- *(bundled)* Bundled tools (`cat`, `head`, `ls`, `find`, `cp`, `wc`, …)
+  now accept MSYS-style paths (`/c/Users/foo`, `/cygdrive/c/...`) directly
+  on Windows. Cycle 2 of
+  [`docs/planning/path-conversion-msys.md`](docs/planning/path-conversion-msys.md):
+  brush-core's bundled-dispatch path translates path-shaped argv
+  elements to native (`C:\...`) form before re-spawning the child, using
+  the same `path_conv` core that drives the `cygpath` builtin. Per-tool
+  policy lives in
+  [`brush-shell/src/bundled.rs::path_arg_policy_for`](brush-shell/src/bundled.rs):
+  utilities whose positional arguments are file paths
+  (`cat`/`head`/`tail`/`ls`/`cp`/`mv`/`stat`/`wc`/…) get
+  `PathArgPolicy::Heuristic`; `find` translates only its starting-point
+  arg via `PathArgPolicy::Positional(vec![1])`; everything else
+  (`sed`, `awk`, `grep`, `xargs`, archivers, unrecognized names) keeps
+  the verbatim-passthrough default so script/pattern arguments like
+  `s|/c/Users|...|` and `'/foo/'` round-trip unchanged. On non-Windows
+  the translation degrades to a no-op via the cross-platform
+  `path_conv` facade.
+
+  ```bash
+  $ brush -c 'cat /c/Github-Tools/brush/Cargo.toml | head -1'
+  [workspace]
+  $ brush -c 'find /c/Github-Tools/brush -maxdepth 1 -name Cargo.toml'
+  C:\Github-Tools\brush\Cargo.toml
+  $ brush -c 'grep "/foo/" file.txt'   # pattern remains literal
+  ```
+
+### 🔄 Changed
+
+- *(core/builtins)* `BundledDispatch` is now `#[non_exhaustive]` and gains
+  a `path_arg_policy: PathArgPolicy` field driving Cycle 2's argv
+  translation. Construct via the new `BundledDispatch::new(exe_path,
+  dispatch_flag)` factory plus the `with_path_arg_policy(...)` builder;
+  struct-literal construction is no longer possible from outside
+  brush-core. Existing in-tree consumers (`brush-shell::bundled`) were
+  migrated. The default policy (`PathArgPolicy::None`) reproduces the
+  pre-Cycle-2 verbatim-passthrough, so any downstream that defaults the
+  field through the builder gets unchanged behavior.
+
+### 🔨 Refactor
+
+- *(core)* MSYS-style path translation (`/c/...` → `C:\...`) is now factored
+  into a dedicated [`brush-core/src/sys/windows/path_conv.rs`](brush-core/src/sys/windows/path_conv.rs)
+  module exposing `convert(&str, PathForm)`, `convert_path_list`, and
+  `looks_like_path` alongside the legacy `try_translate_msys_path`. A
+  cross-platform [`crate::sys::path_conv`](brush-core/src/sys/path_conv.rs) facade
+  re-exports the Windows surface and provides no-op passthroughs on other
+  platforms. Behavior of the legacy translator is unchanged — the existing
+  `Shell::absolute_path` and `commands.rs` direct-exec callers were rewired
+  to the new module path with no semantic change. This is the foundation
+  for Cycles 2–4 of the path-conversion plan (bundled-tool dispatch,
+  outgoing env vars, external-binary argv).
+
+  Algorithm reference: clean-room reimplementation informed by
+  [`stdlib-js/utils-convert-path`](https://github.com/stdlib-js/utils-convert-path)
+  (Apache-2.0). No code copied from MSYS2 / Cygwin (GPL).
+
 ## [0.3.12] - 2026-04-28
 
 > Per-component version bumps in this release:

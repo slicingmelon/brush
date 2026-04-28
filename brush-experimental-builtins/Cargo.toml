@@ -1,7 +1,7 @@
 [package]
 name = "brush-experimental-builtins"
 description = "*EXPERIMENTAL builtins for a POSIX/bash shell (used by brush-shell)"
-version = "0.1.0"
+version = "0.1.1"
 categories.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -14,8 +14,13 @@ rust-version.workspace = true
 bench = false
 
 [features]
-default = ['builtin.save']
+default = ['builtin.save', 'builtin.cygpath']
 'builtin.save' = ["brush-core/serde", "dep:serde_json"]
+# `cygpath` builtin: explicit POSIX (MSYS/Cygwin) ↔ Windows path
+# conversion. Active surface on Windows; no-op passthrough on other
+# platforms (kept enabled cross-platform so portable scripts work
+# unchanged). See docs/planning/path-conversion-msys.md Cycle 1.
+'builtin.cygpath' = []
 
 [lints]
 workspace = true

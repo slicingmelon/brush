@@ -161,8 +161,8 @@ cargo install --locked --git https://github.com/slicingmelon/brush brush-shell
 **Verify both binaries:**
 
 ```bash
-brush --version    # → brush version 0.3.9 (...)
-bash  --version    # → bash (brush) version 0.3.9 (...)
+brush --version    # → brush version 0.3.13 (...)
+bash  --version    # → bash (brush) version 0.3.13 (...)
 ```
 
 **Spot-check the bundled commands:**
@@ -175,13 +175,38 @@ brush -c "echo 'aa1bb' | grep -P '\d'"
 # → aa1bb   (PCRE2 works via the ripgrep-backed grep)
 ```
 
+**Windows path handling (MSYS-style paths just work):**
+
+On Windows, the recommended install translates MSYS-style POSIX paths
+(`/c/Users/foo`, `/cygdrive/c/...`) to native Windows paths (`C:\Users\foo`)
+for `cd`, file tests, redirects, direct-exec, and most bundled tools
+(`cat`, `head`, `ls`, `find`, `cp`, …) — no extra flag needed; it's part
+of `experimental-builtins` (cygpath) + `experimental-bundled-coreutils`
+(per-tool argv translation):
+
+```bash
+brush -c 'cygpath -w /c/Users/foo'                   # → C:\Users\foo (explicit)
+brush -c 'cat /c/Github-Tools/brush/Cargo.toml'      # bundled cat accepts MSYS-form
+brush -c 'find /c/Github-Tools/brush -name Cargo.toml'
+```
+
+Pattern-taking tools (`sed`, `awk`, `grep`, `xargs`) deliberately
+pass argv verbatim so regex literals like `/foo/` round-trip
+unchanged. Use `$(cygpath -w /c/...)` to translate explicitly when
+you need it. Full details:
+[`docs/reference/path-conversion.md`](docs/reference/path-conversion.md).
+
 **Uninstall:**
 
 ```bash
 cargo uninstall brush-shell
 ```
 
-See [`CHANGELOG.FORK.md`](./CHANGELOG.FORK.md) for the full release notes and per-component version bumps. The latest release is **0.3.9** which folded the ripgrep adapter into the umbrella so the recommended install line above bundles everything in one shot.
+See [`CHANGELOG.FORK.md`](./CHANGELOG.FORK.md) for the full release
+notes and per-component version bumps. The latest release is **0.3.13**
+which adds MSYS-style path translation for `cd`, the `cygpath` builtin,
+and bundled tools on Windows
+(see [`docs/reference/path-conversion.md`](docs/reference/path-conversion.md)).
 
 
 <details>

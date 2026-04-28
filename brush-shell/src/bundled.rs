@@ -33,7 +33,9 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use brush_core::ExecutionExitCode;
-use brush_core::builtins::{BoxFuture, ContentOptions, ContentType, Registration};
+use brush_core::builtins::{
+    BoxFuture, BundledDispatch, ContentOptions, ContentType, PathArgPolicy, Registration,
+};
 use brush_core::commands::{self, CommandArg, ExecutionContext};
 use brush_core::extensions::ShellExtensions;
 
@@ -285,9 +287,50 @@ fn shim_execute<SE: ShellExtensions>(
     })
 }
 
-/// Constructs a [`Registration`] for the bundled-shim builtin. The same
-/// registration value can be reused for every bundled name; per-name
-/// dispatch happens via `context.command_name` at execution time.
+/// Returns the [`PathArgPolicy`] for a given bundled command name.
+///
+/// The table is conservative: only utilities whose argv shape is
+/// dominated by file paths get [`PathArgPolicy::Heuristic`]. Tools
+/// whose first non-flag argument is a script or pattern (`sed`, `awk`,
+/// `grep`) keep the default [`PathArgPolicy::None`] — they would
+/// silently corrupt patterns like `/foo/` if subjected to heuristic
+/// translation. `find` is special-cased to translate only its
+/// starting-point arg (argv[1]); subsequent argv elements are
+/// predicate flags and predicate values, not paths to translate.
+///
+/// On non-Windows targets every variant degrades to a no-op (the
+/// underlying `looks_like_path` always returns false), so the table is
+/// safe to evaluate cross-platform.
+///
+/// This is the conservative initial cut described in
+/// `docs/planning/path-conversion-msys.md` Cycle 2. Names not listed
+/// fall through to [`PathArgPolicy::None`].
+fn path_arg_policy_for(name: &str) -> PathArgPolicy {
+    match name {
+        // Coreutils: file-content / metadata / path-acting tools whose
+        // positional arguments are essentially always paths.
+        "cat" | "head" | "tail" | "wc" | "nl" | "od" | "cksum" | "sum" | "tac" | "tee"
+        | "split" | "csplit" | "uniq" | "sort" | "comm" | "join" | "paste" | "shuf" | "tr"
+        | "expand" | "unexpand" | "fmt" | "fold" | "pr" | "cp" | "mv" | "rm" | "ln" | "mkdir"
+        | "rmdir" | "touch" | "chmod" | "chown" | "chgrp" | "stat" | "realpath" | "readlink"
+        | "ls" | "dir" | "vdir" | "du" | "df" | "tree" | "which" | "file" | "xxd" | "column"
+        | "basename" | "dirname" | "install" | "mktemp" | "shred" | "truncate" | "sync"
+        | "cmp" => PathArgPolicy::Heuristic,
+        // find: only the starting-point arg in position 1 is a path.
+        // Predicates and predicate values come after and must be left
+        // alone (a predicate value like `-name '/foo'` would be
+        // misinterpreted by a heuristic).
+        "find" => PathArgPolicy::Positional(vec![1]),
+        // Everything else (sed, awk, grep, fastgrep, rg, xargs, archivers,
+        // unrecognized names) gets the default verbatim passthrough.
+        _ => PathArgPolicy::None,
+    }
+}
+
+/// Constructs a [`Registration`] for the bundled-shim builtin keyed by
+/// `name`. Each name gets its own policy stamped into the
+/// [`BundledDispatch`] via [`path_arg_policy_for`]; the executable path
+/// and dispatch flag are shared across all names.
 ///
 /// **Path A wiring (proto/bundled-path-a)**: this registration carries
 /// a [`brush_core::builtins::BundledDispatch`] that tells brush-core to
@@ -296,40 +339,33 @@ fn shim_execute<SE: ShellExtensions>(
 /// to completion) is preserved as a defensive fallback for builds where
 /// the dispatch field is somehow ignored, but on the normal call path
 /// `shim_execute` is unreachable.
-///
-/// Returns `None` if the brush executable's path cannot be determined
-/// at registration time (extremely rare — implies `current_exe()`
-/// failed). In that case bundled commands are not registerable; this
-/// matches the prior behavior of the inline path which would have
-/// failed at execute time anyway.
-fn shim_registration<SE: ShellExtensions>() -> Option<Registration<SE>> {
-    let exe_path = self_exe()?.clone();
-    Some(
-        brush_core::builtins::raw_builtin::<SE>(shim_execute::<SE>, shim_content)
-            .with_bundled_dispatch(brush_core::builtins::BundledDispatch {
-                exe_path,
-                dispatch_flag: DISPATCH_FLAG.to_string(),
-            }),
-    )
+fn shim_registration_for<SE: ShellExtensions>(
+    exe_path: PathBuf,
+    name: &str,
+) -> Registration<SE> {
+    brush_core::builtins::raw_builtin::<SE>(shim_execute::<SE>, shim_content)
+        .with_bundled_dispatch(
+            BundledDispatch::new(exe_path, DISPATCH_FLAG)
+                .with_path_arg_policy(path_arg_policy_for(name)),
+        )
 }
 
 /// Registers a shim builtin for every name in the installed bundled-command
 /// registry.
 ///
 /// Uses `register_builtin_if_unset` so brush's own builtins (echo, printf,
-/// true, false, etc.) win on conflict.
+/// true, false, etc.) win on conflict. If `current_exe()` failed at
+/// startup we silently skip — matches the prior behavior where
+/// `shim_execute` would have failed at the first invocation anyway.
 pub fn register_shims<SE: ShellExtensions>(shell: &mut brush_core::Shell<SE>) {
     let Some(registry) = REGISTRY.get() else {
         return;
     };
-    // Build the registration once; reused for every bundled name. If
-    // `current_exe()` failed at startup we silently skip — matches the
-    // prior behavior where `shim_execute` would have failed at the
-    // first invocation anyway.
-    let Some(registration) = shim_registration::<SE>() else {
+    let Some(exe_path) = self_exe().cloned() else {
         return;
     };
     for name in registry.keys() {
-        shell.register_builtin_if_unset(name.clone(), registration.clone());
+        let registration = shim_registration_for::<SE>(exe_path.clone(), name);
+        shell.register_builtin_if_unset(name.clone(), registration);
     }
 }

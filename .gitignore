@@ -1,3 +1,6 @@
 target/
 mutants.out*/
 brush.code-workspace
+# Local-only study clones of upstream projects we're informing the
+# path-conversion design from. See docs/planning/path-conversion-msys.md.
+repo-resources/

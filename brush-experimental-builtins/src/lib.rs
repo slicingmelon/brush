@@ -1,5 +1,7 @@
 //! Experimental builtins.
 
+#[cfg(feature = "builtin.cygpath")]
+mod cygpath;
 #[cfg(feature = "builtin.save")]
 mod save;
 
@@ -11,6 +13,8 @@ pub fn experimental_builtins<SE: brush_core::extensions::ShellExtensions>()
 -> std::collections::HashMap<String, builtins::Registration<SE>> {
     let mut m = std::collections::HashMap::<String, builtins::Registration<SE>>::new();
 
+    #[cfg(feature = "builtin.cygpath")]
+    m.insert("cygpath".into(), builtin::<cygpath::CygpathCommand, SE>());
     #[cfg(feature = "builtin.save")]
     m.insert("save".into(), builtin::<save::SaveCommand, SE>());
 

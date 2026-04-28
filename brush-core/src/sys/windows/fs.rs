@@ -161,58 +161,6 @@ pub fn try_open_special_file(path: &Path) -> Option<Result<std::fs::File, std::i
     }
 }
 
-/// Translates an MSYS / Git-Bash / Cygwin style absolute path into a native
-/// Windows path. Returns `None` if `path` is not in one of those forms.
-///
-/// Recognized forms (`<L>` is a single ASCII letter, treated case-insensitively):
-///   `/<L>`              → `<L>:\`
-///   `/<L>/...`          → `<L>:\...`
-///   `/cygdrive/<L>`     → `<L>:\`
-///   `/cygdrive/<L>/...` → `<L>:\...`
-///
-/// Backslashes are accepted as path separators on input. Other leading-slash
-/// paths (e.g. `/dev/null`, `/tmp/foo`) are left alone — those aren't drive
-/// references, and platform-specific handlers like `try_open_special_file`
-/// take care of the ones that need to.
-///
-/// This exists because Claude Code, Git Bash, MSYS2, and similar tooling
-/// routinely hand brush MSYS-style absolute paths (e.g. as redirection
-/// targets), but `Path::is_absolute` returns `false` for them on Windows,
-/// causing `absolute_path` to drive-root-join them and produce mojibake like
-/// `C:/c/Users/...`.
-pub fn try_translate_msys_path(path: &Path) -> Option<PathBuf> {
-    let s = path.to_str()?;
-
-    // Strip an optional `/cygdrive` prefix, then require a leading separator.
-    let after_root = s
-        .strip_prefix("/cygdrive")
-        .or_else(|| s.strip_prefix(r"\cygdrive"))
-        .unwrap_or(s);
-    let rest = after_root
-        .strip_prefix('/')
-        .or_else(|| after_root.strip_prefix('\\'))?;
-
-    let mut chars = rest.chars();
-    let drive = chars.next()?;
-    if !drive.is_ascii_alphabetic() {
-        return None;
-    }
-
-    let drive_upper = drive.to_ascii_uppercase();
-    let after_drive = chars.as_str();
-
-    // Just `/c` — translate to drive root.
-    if after_drive.is_empty() {
-        return Some(PathBuf::from(format!("{drive_upper}:\\")));
-    }
-    // `/c/...` or `/c\...` — translate the tail too. If the second character
-    // isn't a separator (e.g. `/cd`, `/cabinet`), the leading `/c` is not a
-    // drive reference, so leave the path alone.
-    let tail = after_drive.strip_prefix(['/', '\\'])?;
-    let tail_native = tail.replace('/', "\\");
-    Some(PathBuf::from(format!("{drive_upper}:\\{tail_native}")))
-}
-
 /// Returns the default paths where executables are typically found on Windows.
 pub(crate) fn get_default_executable_search_paths() -> Vec<PathBuf> {
     default_system_paths()
@@ -511,79 +459,10 @@ mod tests {
         assert!(resolve_executable(path).is_none());
     }
 
-    #[test]
-    fn translate_msys_drive_root() {
-        assert_eq!(
-            try_translate_msys_path(Path::new("/c")),
-            Some(PathBuf::from(r"C:\"))
-        );
-        assert_eq!(
-            try_translate_msys_path(Path::new("/C")),
-            Some(PathBuf::from(r"C:\"))
-        );
-        assert_eq!(
-            try_translate_msys_path(Path::new("/c/")),
-            Some(PathBuf::from(r"C:\"))
-        );
-    }
-
-    #[test]
-    fn translate_msys_typical_paths() {
-        assert_eq!(
-            try_translate_msys_path(Path::new("/c/Users/foo")),
-            Some(PathBuf::from(r"C:\Users\foo"))
-        );
-        assert_eq!(
-            try_translate_msys_path(Path::new("/d/some/deep/path")),
-            Some(PathBuf::from(r"D:\some\deep\path"))
-        );
-        // The exact failure-mode path that motivated this fix: Claude Code
-        // hands brush a leading-slash path; we must end up at C:\…, not
-        // C:\c\…
-        assert_eq!(
-            try_translate_msys_path(Path::new(
-                "/c/Users/P_SURU~1/AppData/Local/Temp/claude-3c0e-cwd"
-            )),
-            Some(PathBuf::from(
-                r"C:\Users\P_SURU~1\AppData\Local\Temp\claude-3c0e-cwd"
-            ))
-        );
-    }
-
-    #[test]
-    fn translate_msys_cygdrive_form() {
-        assert_eq!(
-            try_translate_msys_path(Path::new("/cygdrive/c/Users/foo")),
-            Some(PathBuf::from(r"C:\Users\foo"))
-        );
-        assert_eq!(
-            try_translate_msys_path(Path::new("/cygdrive/z")),
-            Some(PathBuf::from(r"Z:\"))
-        );
-    }
-
-    #[test]
-    fn translate_msys_rejects_non_drive_paths() {
-        // /dev/null, /tmp/foo, /usr/bin — second char is a separator but
-        // first is not a single drive letter (it's part of a longer name).
-        assert_eq!(try_translate_msys_path(Path::new("/dev/null")), None);
-        assert_eq!(try_translate_msys_path(Path::new("/tmp/foo")), None);
-        assert_eq!(try_translate_msys_path(Path::new("/usr/bin/bash")), None);
-        // /cd is a directory whose name happens to start with a letter; it's
-        // not a drive reference.
-        assert_eq!(try_translate_msys_path(Path::new("/cd")), None);
-        assert_eq!(try_translate_msys_path(Path::new("/cd/foo")), None);
-    }
-
-    #[test]
-    fn translate_msys_rejects_native_and_relative() {
-        // Native Windows paths are not MSYS-style.
-        assert_eq!(try_translate_msys_path(Path::new(r"C:\Users\foo")), None);
-        assert_eq!(try_translate_msys_path(Path::new("C:/Users/foo")), None);
-        // Relative paths are not translated either.
-        assert_eq!(try_translate_msys_path(Path::new("foo/bar")), None);
-        assert_eq!(try_translate_msys_path(Path::new("")), None);
-    }
+    // try_translate_msys_path: full coverage now lives next door in
+    // `path_conv::tests`. The re-export is exercised end-to-end through
+    // the integration tests for `Shell::absolute_path` and the direct-
+    // exec path in `commands.rs`.
 
     #[test]
     fn try_open_special_file_accepts_raw_dev_null() {

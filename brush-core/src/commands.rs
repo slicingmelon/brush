@@ -129,6 +129,58 @@ impl CommandArg {
     }
 }
 
+/// Applies a [`builtins::PathArgPolicy`] to the user argv portion of a
+/// bundled-dispatch invocation, returning a `Vec<CommandArg>` with
+/// any MSYS-style paths translated to native form.
+///
+/// The input iterator yields argv elements *after* the bundled name
+/// (i.e. the user-visible argv[1..] of the spawned process). Position
+/// indices in [`builtins::PathArgPolicy::Positional`] are 1-based —
+/// position `n` refers to the n-th element in `args` (which becomes
+/// argv[n] of the spawned process).
+///
+/// `Assignment` argv elements are passed through unchanged regardless of
+/// policy: they originate from leading `KEY=value` shell syntax and are
+/// not paths.
+pub(crate) fn apply_path_arg_policy(
+    args: impl Iterator<Item = CommandArg>,
+    policy: &builtins::PathArgPolicy,
+) -> Vec<CommandArg> {
+    use builtins::PathArgPolicy;
+
+    match policy {
+        PathArgPolicy::None => args.collect(),
+        PathArgPolicy::Heuristic => args
+            .map(|arg| match arg {
+                CommandArg::String(s) if sys::path_conv::looks_like_path(&s) => CommandArg::String(
+                    sys::path_conv::convert(&s, sys::path_conv::PathForm::Win32).into_owned(),
+                ),
+                other => other,
+            })
+            .collect(),
+        PathArgPolicy::Positional(positions) => args
+            .enumerate()
+            .map(|(idx, arg)| {
+                // 1-based position in the spawned argv: idx 0 here is
+                // argv[1] of the child.
+                let argv_pos = idx + 1;
+                if !positions.contains(&argv_pos) {
+                    return arg;
+                }
+                match arg {
+                    CommandArg::String(s) if sys::path_conv::looks_like_path(&s) => {
+                        CommandArg::String(
+                            sys::path_conv::convert(&s, sys::path_conv::PathForm::Win32)
+                                .into_owned(),
+                        )
+                    }
+                    other => other,
+                }
+            })
+            .collect(),
+    }
+}
+
 /// Encapsulates a possibly-owned reference to a `Shell` for command execution.
 pub enum ShellForCommand<'a, SE: extensions::ShellExtensions> {
     /// The command is run in the same shell as its parent; the provided
@@ -429,7 +481,15 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
             }
         } else {
             let command_name = PathBuf::from(self.command_name.clone());
-            self.execute_via_external(command_name.as_path())
+            // On Windows, an MSYS-style absolute path like `/c/Windows/...`
+            // contains separators (so we land here instead of PATH search) but
+            // is not a valid native path — `CreateProcess` rejects it. Translate
+            // it to its native form before exec. On other platforms this is a
+            // no-op. Relative paths (e.g. `./script.sh`) and already-native
+            // paths fall through unchanged.
+            let command_path =
+                sys::path_conv::try_translate_msys_path(&command_name).unwrap_or(command_name);
+            self.execute_via_external(command_path.as_path())
         }
     }
 
@@ -583,7 +643,16 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
         child_args.push(CommandArg::String(String::new()));
         child_args.push(CommandArg::String(dispatch.dispatch_flag));
         child_args.push(CommandArg::String(bundled_name.clone()));
-        child_args.extend(original_args.into_iter().skip(1));
+        // Apply MSYS-style path translation according to the per-tool
+        // policy attached to this dispatch. argv[0] (the bundled name,
+        // already in `child_args[2]`) is never translated; user arguments
+        // begin at argv[1] of the spawned process and at index 1 of
+        // `original_args`.
+        let translated = apply_path_arg_policy(
+            original_args.into_iter().skip(1),
+            &dispatch.path_arg_policy,
+        );
+        child_args.extend(translated);
         self.args = child_args;
 
         // Override argv[0] for the spawned process so tools that report
@@ -944,4 +1013,99 @@ fn try_unwrap_bare_input_redir_program(program: &ast::Program) -> Option<&ast::I
         ) if fd.is_none_or(|fd| fd == openfiles::OpenFiles::STDIN_FD) => Some(redir),
         _ => None,
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(v: &str) -> CommandArg {
+        CommandArg::String(v.to_string())
+    }
+
+    fn collect_strings(args: Vec<CommandArg>) -> Vec<String> {
+        args.into_iter()
+            .map(|a| match a {
+                CommandArg::String(s) => s,
+                CommandArg::Assignment(a) => a.to_string(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn policy_none_passes_args_verbatim() {
+        let input = vec![s("/c/Users/foo"), s("plain"), s("--flag=value")];
+        let out = apply_path_arg_policy(input.into_iter(), &builtins::PathArgPolicy::None);
+        assert_eq!(
+            collect_strings(out),
+            vec!["/c/Users/foo", "plain", "--flag=value"]
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn policy_heuristic_translates_msys_paths() {
+        let input = vec![s("/c/Users/foo"), s("/cygdrive/d/data")];
+        let out = apply_path_arg_policy(input.into_iter(), &builtins::PathArgPolicy::Heuristic);
+        assert_eq!(collect_strings(out), vec![r"C:\Users\foo", r"D:\data"]);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn policy_heuristic_skips_non_path_args() {
+        let input = vec![
+            s("--option"),
+            s("plain-text"),
+            s("KEY=value"),
+            s("https://example.com/c/foo"),
+        ];
+        let out = apply_path_arg_policy(input.into_iter(), &builtins::PathArgPolicy::Heuristic);
+        // None of these look like paths — they should pass through unchanged.
+        assert_eq!(
+            collect_strings(out),
+            vec![
+                "--option",
+                "plain-text",
+                "KEY=value",
+                "https://example.com/c/foo",
+            ]
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn policy_heuristic_normalizes_already_native_paths() {
+        // A native Win32 path is still a path; passing it through `convert`
+        // is idempotent at the user-visible level (only separator
+        // normalization can apply).
+        let input = vec![s(r"C:\Users\foo")];
+        let out = apply_path_arg_policy(input.into_iter(), &builtins::PathArgPolicy::Heuristic);
+        assert_eq!(collect_strings(out), vec![r"C:\Users\foo"]);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn policy_positional_only_translates_listed_positions() {
+        // Position 1 only — argv[1] is `/c/start`, argv[2] is a predicate
+        // value `/foo` that must NOT be translated.
+        let input = vec![s("/c/start"), s("-name"), s("/foo")];
+        let out = apply_path_arg_policy(
+            input.into_iter(),
+            &builtins::PathArgPolicy::Positional(vec![1]),
+        );
+        assert_eq!(collect_strings(out), vec![r"C:\start", "-name", "/foo"]);
+    }
+
+    #[test]
+    fn policy_positional_with_out_of_range_index_is_noop() {
+        let input = vec![s("/c/foo")];
+        let out = apply_path_arg_policy(
+            input.into_iter(),
+            &builtins::PathArgPolicy::Positional(vec![5]),
+        );
+        // Position 5 doesn't exist in a 1-element argv — input passes
+        // through unchanged.
+        assert_eq!(collect_strings(out), vec!["/c/foo"]);
+    }
+
 }

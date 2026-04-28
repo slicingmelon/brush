@@ -462,11 +462,10 @@ pub(crate) fn init_well_known_vars(
         // unset, breaking AI-agent automation scripts that test `[ -n "$SHELL" ]`.
         // Fork-specific fallback: use `current_exe()` so SHELL is always
         // populated and points at a real shell binary.
-        let shell_path = sys::users::get_current_user_default_shell()
-            .or_else(|| std::env::current_exe().ok());
+        let shell_path =
+            sys::users::get_current_user_default_shell().or_else(|| std::env::current_exe().ok());
         if let Some(path) = shell_path {
-            let mut shell_var =
-                ShellVariable::new(path.to_string_lossy().to_string());
+            let mut shell_var = ShellVariable::new(path.to_string_lossy().to_string());
             shell_var.export();
             shell.env_mut().set_global("SHELL", shell_var)?;
         }
@@ -494,10 +493,7 @@ pub(crate) fn init_well_known_vars(
         }
     }
     if !shell.env().is_set("LOGNAME") {
-        if let Some(name) = shell
-            .env_str("USER")
-            .or_else(|| shell.env_str("USERNAME"))
-        {
+        if let Some(name) = shell.env_str("USER").or_else(|| shell.env_str("USERNAME")) {
             let mut logname_var = ShellVariable::new(name.into_owned());
             logname_var.export();
             shell.env_mut().set_global("LOGNAME", logname_var)?;

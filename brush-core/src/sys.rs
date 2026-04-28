@@ -26,6 +26,7 @@ pub(crate) mod hostname;
 pub mod tokio_process;
 
 pub mod fs;
+pub mod path_conv;
 
 pub use platform::async_pipe;
 pub use platform::commands;

@@ -145,6 +145,38 @@ pub struct ContentOptions {
     pub colorized: bool,
 }
 
+/// Per-tool policy controlling how MSYS-style path arguments in the
+/// re-spawn argv are translated to native form before the child process
+/// is started. See [`BundledDispatch::path_arg_policy`].
+///
+/// On non-Windows targets the policy is effectively a no-op:
+/// `crate::sys::path_conv::looks_like_path` always returns `false` and
+/// `convert` is the identity, so any policy variant degrades to
+/// passthrough. The enum still exists cross-platform so per-tool tables
+/// in `brush-shell` compile on every target without `cfg`-fences.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum PathArgPolicy {
+    /// Pass argv to the child verbatim. Default. Safe for tools whose
+    /// first non-flag argument is a script or pattern (sed, awk, grep)
+    /// or for any tool whose argv shape has not yet been audited.
+    #[default]
+    None,
+
+    /// Translate every argv element for which
+    /// `crate::sys::path_conv::looks_like_path` returns `true`,
+    /// substituting native (`PathForm::Win32`) form. argv[0] is never
+    /// translated. Suitable for utilities whose positional arguments
+    /// are predominantly file paths (e.g. `cat`, `ls`, `cp`).
+    Heuristic,
+
+    /// Translate argv elements at the listed argv positions. Position
+    /// indices are 1-based (argv[0] is the command name and is never
+    /// translated). Indices beyond the actual argv length are silently
+    /// ignored. Used for tools where only specific positions are paths
+    /// — e.g. `find`'s starting-point arg, before the predicate list.
+    Positional(Vec<usize>),
+}
+
 /// Marks a builtin as one that should be dispatched as an external process
 /// spawn rather than executed inline by `execute_func`.
 ///
@@ -164,6 +196,7 @@ pub struct ContentOptions {
 /// consumer (brush-shell) defines `dispatch_flag` and intercepts it in
 /// the binary's `main()` to route to the registered bundled function.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct BundledDispatch {
     /// Path to the executable to spawn — typically the running brush
     /// binary, captured at registration time via `std::env::current_exe()`.
@@ -172,6 +205,34 @@ pub struct BundledDispatch {
     /// path and the bundled name (e.g., `"--invoke-bundled"`). Chosen
     /// by the consumer to be unambiguous in its `main()`.
     pub dispatch_flag: String,
+    /// MSYS-style path translation policy applied to the user argv
+    /// (everything after the bundled name) before the child is spawned.
+    /// Default `None` preserves the legacy verbatim-passthrough.
+    /// See [`PathArgPolicy`] for variants.
+    pub path_arg_policy: PathArgPolicy,
+}
+
+impl BundledDispatch {
+    /// Constructs a [`BundledDispatch`] with the default
+    /// [`PathArgPolicy::None`] policy. Use the
+    /// [`Self::with_path_arg_policy`] builder to override.
+    #[must_use]
+    pub fn new(exe_path: std::path::PathBuf, dispatch_flag: impl Into<String>) -> Self {
+        Self {
+            exe_path,
+            dispatch_flag: dispatch_flag.into(),
+            path_arg_policy: PathArgPolicy::None,
+        }
+    }
+
+    /// Returns a new dispatch with the given path-arg policy installed.
+    #[must_use]
+    pub fn with_path_arg_policy(self, policy: PathArgPolicy) -> Self {
+        Self {
+            path_arg_policy: policy,
+            ..self
+        }
+    }
 }
 
 /// Encapsulates a registration for a built-in command.

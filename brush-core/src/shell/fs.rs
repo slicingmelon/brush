@@ -174,7 +174,7 @@ impl<SE: crate::extensions::ShellExtensions> crate::Shell<SE> {
         // join it onto the cwd and produce a drive-rooted Frankenpath like
         // `C:/c/Users/foo`. Translate it to a native form first. On other
         // platforms this is a no-op.
-        if let Some(translated) = crate::sys::fs::try_translate_msys_path(path) {
+        if let Some(translated) = crate::sys::path_conv::try_translate_msys_path(path) {
             return translated;
         }
         if path.is_absolute() {
