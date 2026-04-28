@@ -455,12 +455,52 @@ pub(crate) fn init_well_known_vars(
 
     // SHELL (if not already set)
     if !shell.env().is_set("SHELL") {
-        // Per docs, this should be the user's default login shell -- not the current shell.
-        if let Some(default_shell) = sys::users::get_current_user_default_shell() {
-            shell.env_mut().set_global(
-                "SHELL",
-                ShellVariable::new(default_shell.to_string_lossy().to_string()),
-            )?;
+        // Per POSIX docs, SHELL is meant to be the user's default login shell —
+        // not the current shell. On Unix that comes from /etc/passwd via
+        // `get_current_user_default_shell`. On Windows there's no such concept,
+        // so the OS-side helper returns None and SHELL would otherwise stay
+        // unset, breaking AI-agent automation scripts that test `[ -n "$SHELL" ]`.
+        // Fork-specific fallback: use `current_exe()` so SHELL is always
+        // populated and points at a real shell binary.
+        let shell_path = sys::users::get_current_user_default_shell()
+            .or_else(|| std::env::current_exe().ok());
+        if let Some(path) = shell_path {
+            let mut shell_var =
+                ShellVariable::new(path.to_string_lossy().to_string());
+            shell_var.export();
+            shell.env_mut().set_global("SHELL", shell_var)?;
+        }
+    }
+
+    // USER (if not already set, mirror USERNAME)
+    //
+    // Fork-specific addition. On Windows the canonical "current user" env var
+    // is `USERNAME`; Unix-style scripts and AI agents almost universally look
+    // at `$USER` instead. If a script runs `[ "$USER" = root ]` or similar on
+    // a Windows brush install, it gets an empty string and the test silently
+    // takes the wrong branch. Mirror USERNAME → USER (and LOGNAME if also
+    // unset, since a few POSIX scripts probe LOGNAME first) so the variable
+    // is reliably populated on every platform without overriding an explicit
+    // user setting.
+    if !shell.env().is_set("USER") {
+        let candidate = shell
+            .env_str("USER")
+            .or_else(|| shell.env_str("LOGNAME"))
+            .or_else(|| shell.env_str("USERNAME"));
+        if let Some(name) = candidate {
+            let mut user_var = ShellVariable::new(name.into_owned());
+            user_var.export();
+            shell.env_mut().set_global("USER", user_var)?;
+        }
+    }
+    if !shell.env().is_set("LOGNAME") {
+        if let Some(name) = shell
+            .env_str("USER")
+            .or_else(|| shell.env_str("USERNAME"))
+        {
+            let mut logname_var = ShellVariable::new(name.into_owned());
+            logname_var.export();
+            shell.env_mut().set_global("LOGNAME", logname_var)?;
         }
     }
 

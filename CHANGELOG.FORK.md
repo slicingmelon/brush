@@ -4,6 +4,31 @@ Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brus
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 matching upstream's [`CHANGELOG.md`](./CHANGELOG.md).
 
+## [0.3.11] - 2026-04-28
+
+> Per-component version bumps in this release:
+>
+> | Crate          | Previous | New     | Why                                                                  |
+> |----------------|----------|---------|----------------------------------------------------------------------|
+> | `brush-core`   | 0.4.2    | 0.4.3   | Auto-populate `SHELL`, `USER`, `LOGNAME` env vars on startup if unset, so AI-agent automation scripts that test `[ -n "$SHELL" ]` / `$USER` reliably work even when the parent process didn't set them (the common case on a fresh Windows brush install). |
+> | `brush-shell`  | 0.3.10   | 0.3.11  | Picks up the brush-core fix transitively; no source change here. |
+
+### 🐛 Bug Fixes
+
+- *(env)* `SHELL` is now auto-populated to `current_exe()` when not already set in the environment. Previously the well-known-vars init only checked the OS user's "default login shell" (`get_current_user_default_shell()`), which returns `None` on Windows — so `$SHELL` would silently stay empty after a fresh brush install. Now AI agents that probe `$SHELL` always get a valid path.
+- *(env)* `USER` is now auto-populated from `USERNAME` (Windows convention) or `LOGNAME` (POSIX convention) when `USER` itself is unset. `LOGNAME` mirrored from `USER`/`USERNAME` when also unset. Both are exported. Closes the gap where Unix-style scripts asking `[ "$USER" = root ]` would silently take the wrong branch on Windows brush.
+
+Both changes respect explicit user overrides — if `SHELL` / `USER` / `LOGNAME` are already set in the environment, brush leaves them alone (POSIX-correct: an explicit empty string is still "set").
+
+**Smoke verification on Windows** (rustc 1.95.0):
+
+```bash
+brush -c 'unset SHELL USER LOGNAME; brush -c "echo SHELL=\$SHELL; echo USER=\$USER; echo LOGNAME=\$LOGNAME"'
+# → SHELL=C:\Users\.../brush.exe
+# → USER=p_surugiu
+# → LOGNAME=p_surugiu
+```
+
 ## [0.3.10] - 2026-04-28
 
 > Per-component version bumps in this release:
