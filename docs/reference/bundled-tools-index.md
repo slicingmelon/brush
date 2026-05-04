@@ -16,6 +16,11 @@
 > itself stays at MSRV 1.88.0 — only this one feature flag carries the
 > bumped requirement. Fall-back install lines (no `grep`) are documented
 > in the README.
+>
+> See [`experimental.md`](experimental.md) for upstream's catalogue of
+> experimental Cargo features and run-time settings; this index focuses
+> on the bundled-tool inventory and Git-for-Windows gap analysis that
+> matter for the fork's daily-driver-shell use case on Windows.
 
 ## How resolution works (short version)
 

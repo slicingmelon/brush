@@ -5,6 +5,16 @@
 may evolve based on feedback before being stabilized. This page is the
 canonical index of what's currently experimental and how to opt in.
 
+> **Fork note (slicingmelon/brush):** this fork additionally ships the
+> `experimental-bundled-extras` build-time flag (sed / awk / grep
+> family / tar + compression family / find / xargs / utility quick-wins)
+> and an extra `cygpath` builtin under `experimental-builtins`. Both
+> are catalogued in
+> [`bundled-tools-index.md`](bundled-tools-index.md) alongside
+> the upstream `experimental-bundled-coreutils` set, with a
+> Git-for-Windows gap analysis. The sections below describe upstream's
+> experimental surface; the fork's additions stack on top.
+
 Experimental features fall into two categories:
 
 1. **Build-time experiments** — additional functionality gated behind
