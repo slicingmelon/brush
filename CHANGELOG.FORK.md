@@ -281,9 +281,9 @@ Both changes respect explicit user overrides — if `SHELL` / `USER` / `LOGNAME`
 
 ```bash
 brush -c 'unset SHELL USER LOGNAME; brush -c "echo SHELL=\$SHELL; echo USER=\$USER; echo LOGNAME=\$LOGNAME"'
-# → SHELL=C:\Users\.../brush.exe
-# → USER=p_surugiu
-# → LOGNAME=p_surugiu
+# → SHELL=C:\Users\<user>\.cargo\bin\brush.exe
+# → USER=<user>
+# → LOGNAME=<user>
 ```
 
 ## [0.3.10] - 2026-04-28
