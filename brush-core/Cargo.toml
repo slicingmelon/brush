@@ -1,7 +1,7 @@
 [package]
 name = "brush-core"
 description = "Reusable core of a POSIX/bash shell (used by brush-shell)"
-version = "0.4.4"
+version = "0.5.0"
 categories.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -24,14 +24,14 @@ experimental-parser = ["brush-parser/winnow-parser"]
 [dependencies]
 async-recursion = "1.1.1"
 async-trait = "0.1.89"
-brush-parser = { version = "^0.3.0", path = "../brush-parser" }
+brush-parser = { version = "^0.4.0", path = "../brush-parser" }
 bon = "3.9.1"
 cached = "0.59.0"
 cfg-if = "1.0.4"
 chrono = "0.4.44"
 clap = { version = "4.6.0", features = ["derive", "wrap_help"] }
 color-print = "0.3.7"
-fancy-regex = "0.17.0"
+fancy-regex = "0.18.0"
 futures = "0.3.32"
 inherent = "1.0.13"
 itertools = "0.14.0"
@@ -45,7 +45,7 @@ thiserror = "2.0.18"
 tracing = "0.1.44"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-tokio = { version = "1.50.0", features = ["io-util", "macros", "rt", "sync"] }
+tokio = { version = "1.52.1", features = ["io-util", "macros", "rt", "sync"] }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 hostname = "0.4.2"
@@ -81,7 +81,7 @@ uzers = "0.12.2"
 
 [target.wasm32-unknown-unknown.dependencies]
 getrandom = { version = "0.4.2", features = ["wasm_js"] }
-uuid = { version = "1.23.0", features = ["js"] }
+uuid = { version = "1.23.1", features = ["js"] }
 
 [dev-dependencies]
 anyhow = "1.0.102"

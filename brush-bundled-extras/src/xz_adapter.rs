@@ -71,7 +71,12 @@ fn run(args: Vec<OsString>, default: Mode) -> i32 {
     }
 
     if paths.is_empty() {
-        return run_stream(mode, level, &mut io::stdin().lock(), &mut io::stdout().lock());
+        return run_stream(
+            mode,
+            level,
+            &mut io::stdin().lock(),
+            &mut io::stdout().lock(),
+        );
     }
 
     let mut any_err = false;

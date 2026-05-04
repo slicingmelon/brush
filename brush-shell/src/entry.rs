@@ -276,7 +276,9 @@ fn install_panic_handlers() {
     human_panic::setup_panic!(
         human_panic::Metadata::new(productinfo::PRODUCT_NAME, productinfo::PRODUCT_VERSION)
             .homepage(env!("CARGO_PKG_HOMEPAGE"))
-            .support("please post a GitHub issue at https://github.com/slicingmelon/brush/issues/new")
+            .support(
+                "please post a GitHub issue at https://github.com/slicingmelon/brush/issues/new"
+            )
     );
 
     //
@@ -880,8 +882,7 @@ mod tests {
         // Bash treats `-c` as consuming the first *non-option* argument as
         // its command, so `bash -c -l 'echo hi'` → command="echo hi",
         // login=true. This is the form Claude Code's Bash tool uses.
-        let parsed_args =
-            CommandLineArgs::try_parse_from(args(&["brush", "-c", "-l", "echo hi"]))?;
+        let parsed_args = CommandLineArgs::try_parse_from(args(&["brush", "-c", "-l", "echo hi"]))?;
         assert_eq!(parsed_args.command, Some("echo hi".to_string()));
         assert!(parsed_args.login);
         assert!(parsed_args.script_args.is_empty());
@@ -927,8 +928,7 @@ mod tests {
     fn parse_c_with_only_flags_after_still_errors() {
         // No non-option argument exists for `-c` to consume; clap should
         // still produce a value-required error.
-        let result =
-            CommandLineArgs::try_parse_from(args(&["brush", "-c", "-l", "--login"]));
+        let result = CommandLineArgs::try_parse_from(args(&["brush", "-c", "-l", "--login"]));
         assert!(result.is_err());
     }
 
@@ -937,8 +937,7 @@ mod tests {
         // If the user explicitly used `--` to terminate options, the
         // existing `--` handling takes over and the pull-adjacent transform
         // is a no-op.
-        let parsed_args =
-            CommandLineArgs::try_parse_from(args(&["brush", "-c", "--", "echo hi"]))?;
+        let parsed_args = CommandLineArgs::try_parse_from(args(&["brush", "-c", "--", "echo hi"]))?;
         assert_eq!(parsed_args.command, Some("echo hi".to_string()));
         Ok(())
     }

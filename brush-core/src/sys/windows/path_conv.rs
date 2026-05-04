@@ -95,6 +95,10 @@ fn parse_posix_device_root(s: &str) -> Option<(char, &str)> {
     if !is_sep(sep) {
         return None;
     }
+    #[allow(
+        clippy::string_slice,
+        reason = "sep.len_utf8() is by construction at a UTF-8 char boundary"
+    )]
     Some((drive, &after_drive[sep.len_utf8()..]))
 }
 
@@ -127,6 +131,10 @@ fn parse_win_device_root(s: &str) -> Option<(char, &str)> {
         // `C:foo` — drive-relative path. Not a device root in our sense.
         return None;
     }
+    #[allow(
+        clippy::string_slice,
+        reason = "bytes_consumed is summed from char.len_utf8() values, always at a UTF-8 boundary"
+    )]
     Some((drive, &after_colon[bytes_consumed..]))
 }
 
@@ -242,6 +250,7 @@ fn to_posix(s: &str) -> Cow<'_, str> {
 }
 
 /// Splits `s` on `:` or `;` and converts each component to `target`.
+///
 /// The output uses `;` between components when `target` is `Win32` or
 /// `Mixed` (Windows-native PATH separator) and `:` when `target` is
 /// `Posix` (POSIX PATH separator).
@@ -282,8 +291,10 @@ pub fn convert_path_list(s: &str, target: PathForm) -> Cow<'_, str> {
 }
 
 /// Conservative heuristic: does `s` look like a path string that *would*
-/// benefit from translation? Used by Cycle 2 (bundled-tools dispatch)
-/// and Cycle 4 (external-arg translation) to skip non-path argv elements.
+/// benefit from translation?
+///
+/// Used by Cycle 2 (bundled-tools dispatch) and Cycle 4 (external-arg
+/// translation) to skip non-path argv elements.
 ///
 /// Returns true only when `s` clearly carries a recognizable drive-root
 /// form. Plain relative paths (e.g. `foo/bar`) return false — they
@@ -309,6 +320,10 @@ pub fn looks_like_path(s: &str) -> bool {
     }
     // `key=value`: `=` precedes any separator.
     if let Some(eq_pos) = s.find('=') {
+        #[allow(
+            clippy::string_slice,
+            reason = "s.find returns a byte index at a UTF-8 char boundary"
+        )]
         let before_eq = &s[..eq_pos];
         if !before_eq.contains(['/', '\\']) {
             return false;
@@ -320,10 +335,12 @@ pub fn looks_like_path(s: &str) -> bool {
 }
 
 /// Translates an MSYS / Git-Bash / Cygwin style absolute path into a
-/// native Windows path. Returns `None` if `path` is not in one of those
-/// forms. Preserves the legacy contract: callers (`Shell::absolute_path`,
-/// `commands.rs` external-exec) get `Some(_)` only when they should
-/// substitute, leaving native paths and relative paths untouched.
+/// native Windows path.
+///
+/// Returns `None` if `path` is not in one of those forms. Preserves the
+/// legacy contract: callers (`Shell::absolute_path`, `commands.rs`
+/// external-exec) get `Some(_)` only when they should substitute,
+/// leaving native paths and relative paths untouched.
 ///
 /// Recognized forms (`<L>` is a single ASCII letter, treated case-
 /// insensitively):

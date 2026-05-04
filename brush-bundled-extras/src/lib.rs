@@ -42,27 +42,27 @@ use std::ffi::OsString;
 #[cfg(feature = "extras.grep")]
 mod grep_adapter;
 
-#[cfg(feature = "extras.which")]
-mod which_adapter;
-#[cfg(feature = "extras.tree")]
-mod tree_adapter;
-#[cfg(feature = "extras.xxd")]
-mod xxd_adapter;
+#[cfg(feature = "extras.clear")]
+mod clear_adapter;
 #[cfg(feature = "extras.column")]
 mod column_adapter;
 #[cfg(feature = "extras.file")]
 mod file_adapter;
 #[cfg(feature = "extras.id")]
 mod id_adapter;
-#[cfg(feature = "extras.clear")]
-mod clear_adapter;
+#[cfg(feature = "extras.tree")]
+mod tree_adapter;
+#[cfg(feature = "extras.which")]
+mod which_adapter;
+#[cfg(feature = "extras.xxd")]
+mod xxd_adapter;
 
-#[cfg(feature = "extras.tar")]
-mod tar_adapter;
-#[cfg(feature = "extras.gzip")]
-mod gzip_adapter;
 #[cfg(feature = "extras.bzip2")]
 mod bzip2_adapter;
+#[cfg(feature = "extras.gzip")]
+mod gzip_adapter;
+#[cfg(feature = "extras.tar")]
+mod tar_adapter;
 #[cfg(feature = "extras.xz")]
 mod xz_adapter;
 #[cfg(feature = "extras.zip")]
@@ -86,6 +86,10 @@ pub type BundledFn = fn(args: Vec<OsString>) -> i32;
 #[allow(
     clippy::implicit_hasher,
     reason = "registry uses the default hasher; callers build with HashMap::new()"
+)]
+#[allow(
+    clippy::too_many_lines,
+    reason = "registry-of-registrations is naturally one big function; splitting harms readability"
 )]
 #[must_use]
 pub fn bundled_commands() -> HashMap<String, BundledFn> {
@@ -145,7 +149,10 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     }
     #[cfg(feature = "extras.column")]
     {
-        m.insert("column".to_string(), column_adapter::column_main as BundledFn);
+        m.insert(
+            "column".to_string(),
+            column_adapter::column_main as BundledFn,
+        );
     }
     #[cfg(feature = "extras.file")]
     {
@@ -182,7 +189,10 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     #[cfg(feature = "extras.bzip2")]
     {
         m.insert("bzip2".to_string(), bzip2_adapter::bzip2_main as BundledFn);
-        m.insert("bunzip2".to_string(), bzip2_adapter::bunzip2_main as BundledFn);
+        m.insert(
+            "bunzip2".to_string(),
+            bzip2_adapter::bunzip2_main as BundledFn,
+        );
         m.insert("bzcat".to_string(), bzip2_adapter::bzcat_main as BundledFn);
     }
     #[cfg(feature = "extras.xz")]
@@ -194,7 +204,10 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     #[cfg(feature = "extras.zip")]
     {
         m.insert("unzip".to_string(), zip_adapter::unzip_main as BundledFn);
-        m.insert("zipinfo".to_string(), zip_adapter::zipinfo_main as BundledFn);
+        m.insert(
+            "zipinfo".to_string(),
+            zip_adapter::zipinfo_main as BundledFn,
+        );
     }
 
     // Cycle 3 (bundled-extras-coverage-expansion). ripgrep replaces
@@ -212,8 +225,14 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     {
         m.insert("rg".to_string(), ripgrep_adapter::rg_main as BundledFn);
         m.insert("grep".to_string(), ripgrep_adapter::grep_main as BundledFn);
-        m.insert("egrep".to_string(), ripgrep_adapter::egrep_main as BundledFn);
-        m.insert("fgrep".to_string(), ripgrep_adapter::fgrep_main as BundledFn);
+        m.insert(
+            "egrep".to_string(),
+            ripgrep_adapter::egrep_main as BundledFn,
+        );
+        m.insert(
+            "fgrep".to_string(),
+            ripgrep_adapter::fgrep_main as BundledFn,
+        );
     }
 
     m
@@ -350,7 +369,7 @@ fn awk_run(args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         if arg == "-F" {
             i += 1;
             let fs_arg = args.get(i).ok_or("option -F requires an argument")?;
-            field_separator = fs_arg.clone();
+            field_separator.clone_from(fs_arg);
         } else if let Some(fs) = arg.strip_prefix("-F") {
             field_separator = fs.to_string();
         } else if arg == "-v" {
@@ -431,7 +450,7 @@ fn awk_run(args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
 #[cfg(feature = "extras.awk")]
 fn print_awk_help() {
     println!(
-        r#"Usage: awk [OPTIONS] 'program' [file ...]
+        r"Usage: awk [OPTIONS] 'program' [file ...]
        awk [OPTIONS] -f progfile [file ...]
 
 A 100% POSIX-compatible AWK implementation in Rust with gawk extensions.
@@ -444,7 +463,7 @@ Options:
   -c, --traditional Traditional AWK mode (disable gawk extensions)
   --version        Print version information
   --help           Print this help message
-"#
+"
     );
 }
 

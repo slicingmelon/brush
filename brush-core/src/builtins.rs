@@ -238,7 +238,7 @@ impl BundledDispatch {
 /// Encapsulates a registration for a built-in command.
 ///
 /// Marked `#[non_exhaustive]` so that future field additions (similar to
-/// `bundled_dispatch` added alongside this attribute) are not SemVer-
+/// `bundled_dispatch` added alongside this attribute) are not `SemVer`-
 /// breaking for downstream consumers. Outside this crate, construct
 /// `Registration` via the [`simple_builtin`], [`builtin`], [`decl_builtin`],
 /// or [`raw_arg_builtin`] factory functions, then chain

@@ -10,9 +10,9 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
+use bzip2::Compression;
 use bzip2::read::BzDecoder;
 use bzip2::write::BzEncoder;
-use bzip2::Compression;
 
 pub(crate) fn bzip2_main(args: Vec<OsString>) -> i32 {
     run(args, Mode::Compress)
@@ -79,7 +79,12 @@ fn run(args: Vec<OsString>, default: Mode) -> i32 {
     }
 
     if paths.is_empty() {
-        return run_stream(mode, level, &mut io::stdin().lock(), &mut io::stdout().lock());
+        return run_stream(
+            mode,
+            level,
+            &mut io::stdin().lock(),
+            &mut io::stdout().lock(),
+        );
     }
 
     let mut any_err = false;

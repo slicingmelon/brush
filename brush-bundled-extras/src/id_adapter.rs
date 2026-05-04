@@ -75,7 +75,14 @@ pub(crate) fn id_main(args: Vec<OsString>) -> i32 {
             "-n" | "--name" => name_only = true,
             "-r" | "--real" => real_ids = true,
             s if s.starts_with('-') && s.len() > 1 && !s.starts_with("--") => {
-                if !try_short_bundle(s, &mut want_user, &mut want_group, &mut want_all_groups, &mut name_only, &mut real_ids) {
+                if !try_short_bundle(
+                    s,
+                    &mut want_user,
+                    &mut want_group,
+                    &mut want_all_groups,
+                    &mut name_only,
+                    &mut real_ids,
+                ) {
                     eprintln!("id: unknown option: {s}");
                     return 1;
                 }
@@ -135,11 +142,7 @@ pub(crate) fn id_main(args: Vec<OsString>) -> i32 {
                 break;
             }
         }
-        if res.is_ok() {
-            writeln!(out)
-        } else {
-            res
-        }
+        if res.is_ok() { writeln!(out) } else { res }
     } else {
         // Default: uid=N(name) gid=N(name) groups=N(name),...
         let _ = write!(
@@ -278,7 +281,11 @@ mod unix {
         if name.is_null() {
             return None;
         }
-        Some(unsafe { std::ffi::CStr::from_ptr(name) }.to_string_lossy().into_owned())
+        Some(
+            unsafe { std::ffi::CStr::from_ptr(name) }
+                .to_string_lossy()
+                .into_owned(),
+        )
     }
 
     fn lookup_groupname(gid: libc::gid_t) -> Option<String> {
@@ -290,7 +297,11 @@ mod unix {
         if name.is_null() {
             return None;
         }
-        Some(unsafe { std::ffi::CStr::from_ptr(name) }.to_string_lossy().into_owned())
+        Some(
+            unsafe { std::ffi::CStr::from_ptr(name) }
+                .to_string_lossy()
+                .into_owned(),
+        )
     }
 }
 
@@ -330,10 +341,8 @@ mod windows {
             let groups_buf = query_token(token, TokenGroups)?;
             let token_groups = groups_buf.as_ptr().cast::<TOKEN_GROUPS>();
             let group_count = (*token_groups).GroupCount as usize;
-            let groups_slice = std::slice::from_raw_parts(
-                (*token_groups).Groups.as_ptr(),
-                group_count,
-            );
+            let groups_slice =
+                std::slice::from_raw_parts((*token_groups).Groups.as_ptr(), group_count);
             let mut groups = Vec::with_capacity(group_count + 1);
             // Always include primary group first
             groups.push(GroupInfo {
@@ -349,8 +358,8 @@ mod windows {
                 if g_rid == gid {
                     continue;
                 }
-                let (gname, _gdomain) = lookup_sid_name(g_sid)
-                    .unwrap_or_else(|_| (g_rid.to_string(), String::new()));
+                let (gname, _gdomain) =
+                    lookup_sid_name(g_sid).unwrap_or_else(|_| (g_rid.to_string(), String::new()));
                 groups.push(GroupInfo {
                     gid: g_rid,
                     name: gname,
@@ -402,7 +411,10 @@ mod windows {
             GetTokenInformation(token, info_class, buf.as_mut_ptr().cast(), size, &mut size)
         };
         if ok == 0 {
-            return Err(format!("GetTokenInformation failed (error {})", last_error()));
+            return Err(format!(
+                "GetTokenInformation failed (error {})",
+                last_error()
+            ));
         }
         Ok(buf)
     }

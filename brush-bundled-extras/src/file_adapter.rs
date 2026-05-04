@@ -164,9 +164,7 @@ fn human_label_from_mime(mime: &str, ext: &str) -> String {
         "image/gif" => "GIF image data".to_string(),
         "image/webp" => "WebP image data".to_string(),
         "application/x-executable" | "application/x-elf" => "ELF executable".to_string(),
-        "application/vnd.microsoft.portable-executable" => {
-            "PE32+ executable (Windows)".to_string()
-        }
+        "application/vnd.microsoft.portable-executable" => "PE32+ executable (Windows)".to_string(),
         "application/wasm" => "WebAssembly module".to_string(),
         _ => format!("{mime} ({ext})"),
     }

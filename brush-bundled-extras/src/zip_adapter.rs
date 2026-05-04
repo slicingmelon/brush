@@ -148,10 +148,7 @@ fn print_listing<R: Read + io::Seek>(zip: &mut zip::ZipArchive<R>, long: bool) -
     0
 }
 
-fn extract_to_stdout<R: Read + io::Seek>(
-    zip: &mut zip::ZipArchive<R>,
-    members: &[String],
-) -> i32 {
+fn extract_to_stdout<R: Read + io::Seek>(zip: &mut zip::ZipArchive<R>, members: &[String]) -> i32 {
     let stdout = io::stdout();
     let mut out = stdout.lock();
     let n = zip.len();

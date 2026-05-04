@@ -450,7 +450,9 @@ fn walk_dir(
     }
     for entry in wb.build() {
         let Ok(entry) = entry else { continue };
-        let Some(ft) = entry.file_type() else { continue };
+        let Some(ft) = entry.file_type() else {
+            continue;
+        };
         if !ft.is_file() {
             continue;
         }
@@ -531,7 +533,9 @@ fn search_reader<R: BufRead>(
                 return;
             }
             if cfg.files_with_matches {
-                let mut o = out.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut o = out
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 let _ = writeln!(o, "{label}");
                 return;
             }
@@ -539,17 +543,46 @@ fn search_reader<R: BufRead>(
                 return;
             }
             if !cfg.count && !cfg.files_with_matches && !cfg.files_without_matches {
-                let mut o = out.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut o = out
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 // Emit context-before
                 while let Some((bn, bl)) = before_buf.pop_front() {
-                    write_line(&mut *o, show_path, label, cfg.line_numbers, bn, &bl, false, None);
+                    write_line(
+                        &mut *o,
+                        show_path,
+                        label,
+                        cfg.line_numbers,
+                        bn,
+                        &bl,
+                        false,
+                        None,
+                    );
                 }
                 if cfg.only_matching {
                     if let Some((s, e)) = m {
-                        write_line(&mut *o, show_path, label, cfg.line_numbers, line_no, &line[s..e], true, None);
+                        write_line(
+                            &mut *o,
+                            show_path,
+                            label,
+                            cfg.line_numbers,
+                            line_no,
+                            &line[s..e],
+                            true,
+                            None,
+                        );
                     }
                 } else {
-                    write_line(&mut *o, show_path, label, cfg.line_numbers, line_no, line, true, m);
+                    write_line(
+                        &mut *o,
+                        show_path,
+                        label,
+                        cfg.line_numbers,
+                        line_no,
+                        line,
+                        true,
+                        m,
+                    );
                 }
                 after_remaining = cfg.after;
             }
@@ -560,8 +593,19 @@ fn search_reader<R: BufRead>(
             }
         } else {
             if after_remaining > 0 {
-                let mut o = out.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                write_line(&mut *o, show_path, label, cfg.line_numbers, line_no, line, false, None);
+                let mut o = out
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                write_line(
+                    &mut *o,
+                    show_path,
+                    label,
+                    cfg.line_numbers,
+                    line_no,
+                    line,
+                    false,
+                    None,
+                );
                 after_remaining -= 1;
             }
             if cfg.before > 0 {
@@ -574,7 +618,9 @@ fn search_reader<R: BufRead>(
     }
 
     if cfg.count {
-        let mut o = out.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut o = out
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if show_path {
             let _ = writeln!(o, "{label}:{match_count}");
         } else {
@@ -582,7 +628,9 @@ fn search_reader<R: BufRead>(
         }
     }
     if cfg.files_without_matches && !had_match {
-        let mut o = out.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut o = out
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let _ = writeln!(o, "{label}");
     }
 }

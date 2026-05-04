@@ -15,6 +15,8 @@ fn host_has_attached_console() -> bool {
         unsafe extern "system" {
             fn GetConsoleWindow() -> *mut core::ffi::c_void;
         }
+        // SAFETY: `GetConsoleWindow` is a Win32 API with no preconditions —
+        // it always returns a HWND or NULL, never invokes UB.
         !unsafe { GetConsoleWindow() }.is_null()
     })
 }

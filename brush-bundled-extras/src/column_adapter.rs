@@ -40,6 +40,10 @@ struct Cfg {
     inputs: Vec<String>,
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "single CLI entry point parsing argv + dispatching; splitting harms readability"
+)]
 fn run(argv: &[String]) -> Result<i32, String> {
     let mut cfg = Cfg {
         table_mode: false,
@@ -124,7 +128,11 @@ fn run(argv: &[String]) -> Result<i32, String> {
                 if idx + 1 == row.len() {
                     out.write_all(cell.as_bytes()).map_err(|e| e.to_string())?;
                 } else {
-                    let pad = widths.get(idx).copied().unwrap_or(0).saturating_sub(cell.len());
+                    let pad = widths
+                        .get(idx)
+                        .copied()
+                        .unwrap_or(0)
+                        .saturating_sub(cell.len());
                     out.write_all(cell.as_bytes()).map_err(|e| e.to_string())?;
                     for _ in 0..pad {
                         out.write_all(b" ").map_err(|e| e.to_string())?;
@@ -146,11 +154,7 @@ fn run(argv: &[String]) -> Result<i32, String> {
     Ok(0)
 }
 
-fn read_rows<R: BufRead>(
-    rows: &mut Vec<Vec<String>>,
-    reader: R,
-    cfg: &Cfg,
-) -> Result<(), String> {
+fn read_rows<R: BufRead>(rows: &mut Vec<Vec<String>>, reader: R, cfg: &Cfg) -> Result<(), String> {
     for line in reader.lines() {
         let line = line.map_err(|e| e.to_string())?;
         if line.is_empty() {

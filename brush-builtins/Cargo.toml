@@ -1,7 +1,7 @@
 [package]
 name = "brush-builtins"
 description = "Builtins for a POSIX/bash shell (used by brush-shell)"
-version = "0.1.0"
+version = "0.2.0"
 categories.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -128,12 +128,12 @@ default = [
 workspace = true
 
 [dependencies]
-brush-core = { version = "^0.4.0", path = "../brush-core" }
-brush-parser = { version = "^0.3.0", path = "../brush-parser" }
+brush-core = { version = "^0.5.0", path = "../brush-core" }
+brush-parser = { version = "^0.4.0", path = "../brush-parser" }
 cfg-if = "1.0.4"
 chrono = "0.4.44"
 clap = { version = "4.6.0", features = ["derive", "wrap_help"] }
-fancy-regex = "0.17.0"
+fancy-regex = "0.18.0"
 futures = "0.3.32"
 itertools = "0.14.0"
 strum = "0.28.0"
@@ -142,7 +142,7 @@ thiserror = "2.0.18"
 tracing = "0.1.44"
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-tokio = { version = "1.50.0", features = ["io-util", "macros", "rt"] }
+tokio = { version = "1.52.1", features = ["io-util", "macros", "rt"] }
 
 [target.'cfg(any(unix, windows))'.dependencies]
 tokio = { version = "1.50.0", features = [

@@ -87,16 +87,14 @@ fn run(argv: &[String]) -> Result<i32, String> {
                 let pats = argv
                     .get(i)
                     .ok_or_else(|| "-I requires a value".to_string())?;
-                cfg.excludes
-                    .extend(pats.split(',').map(str::to_string));
+                cfg.excludes.extend(pats.split(',').map(str::to_string));
             }
             "-P" => {
                 i += 1;
                 let pats = argv
                     .get(i)
                     .ok_or_else(|| "-P requires a value".to_string())?;
-                cfg.includes
-                    .extend(pats.split(',').map(str::to_string));
+                cfg.includes.extend(pats.split(',').map(str::to_string));
             }
             s if s.starts_with('-') && s.len() > 1 => return Err(format!("unknown option: {s}")),
             _ => cfg.roots.push(PathBuf::from(arg)),

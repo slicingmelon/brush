@@ -4,6 +4,87 @@ Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brus
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 matching upstream's [`CHANGELOG.md`](./CHANGELOG.md).
 
+## [0.4.0] - 2026-05-04
+
+> Per-component version bumps in this release (aligning with upstream's
+> [`brush-shell-v0.4.0`](https://github.com/reubeno/brush/releases/tag/brush-shell-v0.4.0)
+> tag, released 2026-05-03):
+>
+> | Crate                          | Previous (fork) | New     | Why |
+> |--------------------------------|-----------------|---------|-----|
+> | `brush-parser`                 | 0.3.1           | **0.4.0** | Aligns with upstream `brush-parser-v0.4.0`. Fork's CRLF tokenizer fix (0.3.12) carries forward. |
+> | `brush-core`                   | 0.4.4           | **0.5.0** | Aligns with upstream `brush-core-v0.5.0`. Fork's `PathArgPolicy`, `path_conv` module, `SHELL`/`USER`/`LOGNAME` auto-population, and conditional `CREATE_NO_WINDOW` carry forward. |
+> | `brush-builtins`               | 0.1.0           | **0.2.0** | Aligns with upstream `brush-builtins-v0.2.0` (auto-merged from upstream PR [#1118](https://github.com/reubeno/brush/pull/1118)). |
+> | `brush-experimental-builtins`  | 0.1.1           | 0.1.1     | No bump — upstream's #1118 only bumped its `brush-core` dep, not its own version. Fork's `cygpath` builtin stays. |
+> | `brush-interactive`            | 0.3.0           | **0.4.0** | Aligns with upstream `brush-interactive-v0.4.0`. |
+> | `brush-shell`                  | 0.3.13          | **0.4.0** | Aligns with upstream `brush-shell-v0.4.0`. Headline binary version reads `brush 0.4.0 (fork: slicingmelon)` to make the upstream-alignment unambiguous. |
+> | `brush` (top-level)            | 0.3.0           | **0.4.0** | Aligns with upstream. |
+> | `brush-bundled-extras` (fork-only) | 0.1.9       | 0.1.9     | No bump — upstream-v0.4.0 has no bearing on this crate's cadence. |
+> | `brush-coreutils-builtins` (fork-extended) | 0.1.1   | 0.1.1     | No bump — fork's 0.1.1 already represents "upstream 0.1.0 + fork delta". |
+
+### 🔄 Changed
+
+- *(workspace)* Migrate fork to upstream's `brush-shell-v0.4.0` baseline.
+  Tracked in [`docs/planning/upstream-v0.4.0-migration.md`](./docs/planning/upstream-v0.4.0-migration.md).
+  Five kaizen cycles, branch
+  [`feat/upstream-v0.4.0-migration`](https://github.com/slicingmelon/brush/tree/feat/upstream-v0.4.0-migration).
+  The actual divergence was small — the fork had been continuously
+  pulling and merge-base was at upstream PR
+  [#1031](https://github.com/reubeno/brush/pull/1031) (Apr 20, 2026).
+  Only 10 upstream commits were not in `origin/main`:
+  - PR [#1109](https://github.com/reubeno/brush/pull/1109) — parser bug
+    fix (`!` formatted without trailing space). **Already absorbed
+    independently** in fork release 0.3.13 (commit
+    [`d6ca82b`](https://github.com/slicingmelon/brush/commit/d6ca82b)),
+    so this cycle was a no-op.
+  - PRs [#1110](https://github.com/reubeno/brush/pull/1110) /
+    [#1111](https://github.com/reubeno/brush/pull/1111) /
+    [#1122](https://github.com/reubeno/brush/pull/1122) — CI workflow
+    churn (`cargo about` fix in CD; github-actions group bumps).
+  - PRs [#1112](https://github.com/reubeno/brush/pull/1112) /
+    [#1117](https://github.com/reubeno/brush/pull/1117) /
+    [#1123](https://github.com/reubeno/brush/pull/1123) — Cargo
+    dependency bumps (tokio 1.50→1.52.2, reedline 0.46→0.47 with the
+    bundled `read_line` API fix, uuid 1.23.0→1.23.1, junit-report
+    0.8.3→0.9.0, const_format 0.2.35→0.2.36, fancy-regex 0.17→0.18, +
+    many transitive `cargo update` patch-level bumps). The fork's
+    `uutils/sed` 0.1.1 dep transitively retains `fancy-regex 0.17` —
+    expected coexistence with `fancy-regex 0.18` in everywhere else.
+  - PRs [#1113](https://github.com/reubeno/brush/pull/1113) /
+    [#1114](https://github.com/reubeno/brush/pull/1114) — README header
+    image refresh; new
+    [`docs/reference/experimental.md`](./docs/reference/experimental.md)
+    plus refreshes to `compatibility.md` / `configuration.md`. Fork's
+    [`docs/reference/bundled-tools-index.md`](./docs/reference/bundled-tools-index.md)
+    now cross-links to upstream's `experimental.md` and vice-versa.
+  - PR [#1118](https://github.com/reubeno/brush/pull/1118) — workspace
+    version bumps to v0.4.0 (this cycle's headline change).
+
+### 📚 Documentation
+
+- Added [`docs/planning/upstream-v0.4.0-migration.md`](./docs/planning/upstream-v0.4.0-migration.md)
+  documenting the 5-cycle kaizen migration plan, the per-commit conflict
+  risk inventory, the version-alignment matrix, and the
+  decisions log.
+- Cross-link added between
+  [`docs/reference/experimental.md`](./docs/reference/experimental.md)
+  (upstream's catalogue) and
+  [`docs/reference/bundled-tools-index.md`](./docs/reference/bundled-tools-index.md)
+  (fork's bundled inventory + Git-for-Windows gap analysis), so users
+  reading either page can find the other.
+
+### 📋 Process / Decisions
+
+- **Branch strategy**: cherry-pick instead of merge for tighter,
+  reviewable commit history (see planning doc's "Why kaizen, not a
+  single merge?" section).
+- **Version alignment**: fork's `brush-shell` lands at exactly
+  `0.4.0` (not `0.4.1`) so `brush --version` unambiguously communicates
+  upstream-baseline alignment. Future fork-only patch releases will be
+  `0.4.1`, `0.4.2`, etc.
+- **Fork-only crates** (`brush-bundled-extras`, `brush-coreutils-builtins`):
+  major bumps deferred to follow-up releases as their own changes ship.
+
 ## [0.3.13] - 2026-04-29
 
 > Per-component version bumps in this release:

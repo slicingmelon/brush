@@ -24,9 +24,9 @@ use std::fs::File;
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
+use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
-use flate2::Compression;
 
 pub(crate) fn tar_main(args: Vec<OsString>) -> i32 {
     let argv: Vec<String> = args
@@ -74,7 +74,8 @@ fn run(argv: &[String]) -> Result<i32, String> {
         if arg == "-C" {
             i += 1;
             cfg.chdir = Some(PathBuf::from(
-                argv.get(i).ok_or_else(|| "-C requires a value".to_string())?,
+                argv.get(i)
+                    .ok_or_else(|| "-C requires a value".to_string())?,
             ));
             i += 1;
             continue;
@@ -122,7 +123,8 @@ fn run(argv: &[String]) -> Result<i32, String> {
                 "-C" | "--directory" => {
                     i += 1;
                     cfg.chdir = Some(PathBuf::from(
-                        argv.get(i).ok_or_else(|| "-C requires a value".to_string())?,
+                        argv.get(i)
+                            .ok_or_else(|| "-C requires a value".to_string())?,
                     ));
                 }
                 "--strip-components" => {
@@ -158,7 +160,9 @@ fn run(argv: &[String]) -> Result<i32, String> {
         i += 1;
     }
 
-    let op = cfg.op.ok_or_else(|| "missing operation: -c, -x, or -t".to_string())?;
+    let op = cfg
+        .op
+        .ok_or_else(|| "missing operation: -c, -x, or -t".to_string())?;
     match op {
         Op::Create => do_create(&cfg),
         Op::Extract => do_extract(&cfg),
@@ -257,10 +261,7 @@ fn do_extract(cfg: &Cfg) -> Result<i32, String> {
                 continue;
             }
         };
-        let path = entry
-            .path()
-            .map_err(|e| e.to_string())?
-            .into_owned();
+        let path = entry.path().map_err(|e| e.to_string())?.into_owned();
         let stripped = strip_components(&path, cfg.strip_components);
         let Some(stripped) = stripped else { continue };
         let out_path = dest.join(&stripped);
