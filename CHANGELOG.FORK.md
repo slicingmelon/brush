@@ -4,6 +4,68 @@ Changes specific to this fork of [reubeno/brush](https://github.com/reubeno/brus
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 matching upstream's [`CHANGELOG.md`](./CHANGELOG.md).
 
+## [0.4.1] - 2026-05-05
+
+> Branch:
+> [`feat/bundled-extras-cli-fidelity`](https://github.com/slicingmelon/brush/tree/feat/bundled-extras-cli-fidelity).
+> Tracked in
+> [`docs/planning/bundled-extras-cli-fidelity.md`](./docs/planning/bundled-extras-cli-fidelity.md).
+>
+> Per-component bumps:
+>
+> | Crate                          | Previous (fork) | New     | Why |
+> |--------------------------------|-----------------|---------|-----|
+> | `brush-bundled-extras`         | 0.1.9           | **0.2.0** | Layer 1 of the bundled-extras-cli-fidelity plan: ripgrep adapter rewrite (`clap`-derive parser, full flag matrix), `ripgrep` registered as alias for `rg`, mode-aware GNU vs. ripgrep behavior. |
+> | `brush-shell`                  | 0.4.0           | **0.4.1** | User-visible behavior change (new `ripgrep` command name, GNU-grep semantics for `grep` instead of ripgrep semantics) plus the new `bundled_extras_smoke` integration test target. |
+> | `brush` (top-level)            | 0.4.0           | **0.4.1** | Tracks `brush-shell`. |
+
+### ✨ Added
+
+- *(extras / `rg` / `ripgrep` / `grep`)* Replace the hand-rolled
+  `ripgrep_adapter` argv parser (~30 flags, "unknown option" agent
+  friction) with a `clap`-derive parser covering the agent-relevant
+  flag matrix: `-t TYPE` / `--type-list` / `--type-add`, `-S` smart-case,
+  `--column`, `-g GLOB` / `--iglob`, `-U` / `--multiline`, `-j N`
+  threads, `--no-heading` / `--heading`, `-b` / `--byte-offset`,
+  `--passthru`, `--trim`, `--max-depth`, `--vimgrep` / `--json`
+  / `--stats` (accepted, no-op), and the GNU-grep set
+  (`-D` / `--devices`, `-d` / `--directories`,
+  `--exclude-dir`, `--exclude-from`, `--binary-files`,
+  `-y` synonym for `-i`, `-NUM` shorthand for `-C NUM`). Mode-aware
+  defaults: `grep` / `egrep` / `fgrep` use GNU semantics
+  (no gitignore, no auto-recurse, errors on a directory without `-r`);
+  `rg` / `ripgrep` keep ripgrep semantics (gitignore-aware,
+  auto-recurse). `-o` / `--only-matching` now emits all non-overlapping
+  matches per line (previously only the first).
+- *(extras / `ripgrep` name)* Register `ripgrep` as an alias for `rg`
+  in [`brush-bundled-extras::bundled_commands`](./brush-bundled-extras/src/lib.rs).
+  Agents probing for the canonical full name no longer hit "command
+  not found".
+- *(brush-shell tests)* New
+  [`brush-bundled-extras-smoke`](./brush-shell/tests/bundled_extras_smoke.rs)
+  integration test (38 cases) covering `rg` / `ripgrep` / `grep`
+  / `egrep` / `fgrep` / `awk` / `sed` flag surface and behavioral
+  defaults. Required-features gate ensures it builds only with
+  `experimental-bundled-extras`.
+
+### 🐛 Fixed
+
+- *(extras / ripgrep adapter)* File-search returned no matches on
+  Windows because the binary-detection peek reused a `try_clone`'d
+  handle whose file pointer was shared with the search-side
+  `BufReader`, leaving the reader pointing past the data. Use a
+  separate `File::open` for the peek instead. (Caught by the new
+  smoke tests.)
+
+### 📚 Docs
+
+- *(planning)* Add
+  [`docs/planning/bundled-extras-cli-fidelity.md`](./docs/planning/bundled-extras-cli-fidelity.md)
+  documenting the Layer 1 / Layer 2 split: this release ships
+  Layer 1 (clap-derive parser + mode-aware behavior); Layer 2
+  (vendor `BurntSushi/ripgrep` `crates/core/` as
+  `brush-vendored-ripgrep` for full fidelity) remains queued.
+
 ## [0.4.0] - 2026-05-04
 
 > Per-component version bumps in this release (aligning with upstream's
