@@ -1,13 +1,26 @@
 # Upstream v0.4.0 Migration — Planning
 
-> **Status**: 🟡 **Cycle 1 not started** · 5 cycles total · branch
-> [`feat/upstream-v0.4.0-migration`](https://github.com/slicingmelon/brush/tree/feat/upstream-v0.4.0-migration).
+> **Status**: 🟢 **All 5 cycles shipped** (2026-05-05) · branch
+> [`feat/upstream-v0.4.0-migration`](https://github.com/slicingmelon/brush/tree/feat/upstream-v0.4.0-migration)
+> ready to merge to `main`.
 >
 > **Created**: 2026-05-04 · **Owner**: TBD
 > **Tracks**: bringing the fork up to upstream's
 > [`brush-shell-v0.4.0`](https://github.com/reubeno/brush/releases/tag/brush-shell-v0.4.0)
 > tag (released 2026-05-03) plus the two post-tag dependabot commits on
 > upstream/main.
+>
+> ## Cycle status
+>
+> | Cycle | Risk | Status | Outcome |
+> |---|---|---|---|
+> | 1 — PR [#1109](https://github.com/reubeno/brush/pull/1109) parser `!` fix | 🟢 zero | ✅ skipped | Fork's release 0.3.13 (commit [`d6ca82b`](https://github.com/slicingmelon/brush/commit/d6ca82b)) independently applied the same 1-line fix three days *before* upstream merged #1109. Cherry-pick was an empty no-op. |
+> | 2 — PRs [#1110](https://github.com/reubeno/brush/pull/1110)/[#1111](https://github.com/reubeno/brush/pull/1111)/[#1122](https://github.com/reubeno/brush/pull/1122) CI workflow churn | 🟢 low | ✅ shipped | All three cherry-picked clean (`d7e6b50`, `92f2139`, `9091d59`). |
+> | 3 — PRs [#1112](https://github.com/reubeno/brush/pull/1112)/[#1117](https://github.com/reubeno/brush/pull/1117)/[#1123](https://github.com/reubeno/brush/pull/1123) Cargo dep bumps | 🟡 medium | ✅ shipped | Cargo.lock conflicts in #1112 and #1117 resolved by keeping `--ours` lock + `cargo update -p` for each bumped dep; #1123 auto-merged. brush-shell builds clean post-bumps. tokio 1.50→1.52.2, reedline 0.46→0.47 (with the bundled `read_line` API fix), uuid 1.23.0→1.23.1, junit-report 0.8.3→0.9.0, const_format 0.2.35→0.2.36, fancy-regex 0.17→0.18 (uutils/sed transitively retains 0.17 — expected). |
+> | 4 — PRs [#1113](https://github.com/reubeno/brush/pull/1113)/[#1114](https://github.com/reubeno/brush/pull/1114) doc updates | 🟢 low | ✅ shipped | Both auto-merged. Follow-up commit `0d1a408` adds bidirectional cross-links between upstream's new `experimental.md` and fork's `bundled-tools-index.md`. |
+> | 5 — PR [#1118](https://github.com/reubeno/brush/pull/1118) workspace version bumps to v0.4.0 | 🔴 high | ✅ shipped | Cargo.toml conflicts in `brush-parser`/`brush-core`/`brush-shell` resolved per the version-alignment matrix. `brush-shell` lands at exactly `0.4.0`. `brush --version` reads `brush version 0.4.0 (git:...) - https://github.com/slicingmelon/brush`. CHANGELOG.FORK.md `[0.4.0]` section added. |
+> | Post-cycle cleanup | n/a | ✅ shipped | Two follow-up commits surfaced by the dep upgrades' new toolchain rules: `9ad75a1` (rustfmt fixes for fork-only files) and `2a0e42d` (clippy-1.95 strictness fixes — 8 errors in `brush-core` + 4 errors in `brush-bundled-extras`, all in fork-only code, all surgical with `#[allow(..., reason = "...")]` attributes per workspace convention). |
+> | Final gate | n/a | ✅ green | `cargo fmt --check --all` clean; `cargo clippy --workspace --all-features --all-targets` clean; **396 unit tests pass** across the workspace, zero failures; binary smoke test green: `cygpath`, MSYS path translation, bundled tools (ls/sed/awk/tar/rg), and version banner all work as expected. (`cargo xtask ci quick` final step `cargo nextest run` failed because `cargo-nextest` is not installed in this environment — env issue, not a regression; the equivalent `cargo test --workspace --lib` runs green.) |
 
 ---
 
