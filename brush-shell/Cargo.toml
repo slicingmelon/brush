@@ -1,7 +1,7 @@
 [package]
 name = "brush-shell"
 description = "Rust-implemented shell focused on POSIX and bash compatibility"
-version = "0.4.0"
+version = "0.4.1"
 authors.workspace = true
 categories.workspace = true
 edition.workspace = true
@@ -54,6 +54,11 @@ path = "tests/interactive_tests.rs"
 [[test]]
 name = "brush-completion-tests"
 path = "tests/completion_tests.rs"
+
+[[test]]
+name = "brush-bundled-extras-smoke"
+path = "tests/bundled_extras_smoke.rs"
+required-features = ["experimental-bundled-extras"]
 
 [[bench]]
 name = "shell"
@@ -168,7 +173,7 @@ workspace = true
 [dependencies]
 brush-core = { version = "^0.5.0", path = "../brush-core" }
 brush-builtins = { version = "^0.2.0", path = "../brush-builtins" }
-brush-bundled-extras = { version = "^0.1.9", path = "../brush-bundled-extras", optional = true }
+brush-bundled-extras = { version = "^0.2.0", path = "../brush-bundled-extras", optional = true }
 brush-coreutils-builtins = { version = "^0.1.0", path = "../brush-coreutils-builtins", optional = true }
 brush-experimental-builtins = { version = "^0.1.0", path = "../brush-experimental-builtins", optional = true }
 clap = { version = "4.6.0", features = ["derive", "env"] }

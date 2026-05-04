@@ -1,45 +1,52 @@
-//! ripgrep-style grep adapter — bundled `rg` / `grep` / `egrep` / `fgrep`
-//! using `regex` + `pcre2` directly, with `ignore` (the same crate ripgrep
-//! itself uses) for gitignore-aware filesystem walks.
+//! ripgrep-style grep adapter — bundled `rg` / `ripgrep` / `grep` /
+//! `egrep` / `fgrep` using `regex` + `pcre2` directly, with `ignore`
+//! (the same crate ripgrep itself uses) for gitignore-aware filesystem
+//! walks plus `globset` for the `-g` / `--glob` filter system.
 //!
-//! Per `docs/planning/bundled-extras-coverage-expansion.md` Cycle 3.
-//! Replaces fastgrep as the backing for `grep` / `egrep` / `fgrep`; the
-//! `fastgrep` name remains registered to the fastgrep adapter for
-//! users who want fastgrep's SIMD speed and accept its GNU-grep gaps
-//! (no `-P`, no `-z`, no `-G`, etc.).
+//! ## Why this isn't real ripgrep
 //!
-//! This is a **line-based** implementation — for each file, read line
-//! by line and run the regex. Not as fast as ripgrep's mmap+SIMD core,
-//! but supports the full GNU/PCRE2 flag matrix in ~500 lines of Rust
-//! instead of vendoring 4000 lines of ripgrep core. Sufficient for
-//! agent workloads (sub-second on most repositories).
+//! `BurntSushi`'s `ripgrep` crate on crates.io ships as a binary only —
+//! its `crates/core/` is not exposed as a library, confirmed in
+//! [`BurntSushi`/ripgrep#2509](https://github.com/BurntSushi/ripgrep/discussions/2509).
+//! There is no `pub fn rg_main(args)` to delegate to, the way
+//! `uutils/sed` exposes `sed::sed::uumain(args)`.
 //!
-//! Supported flags (the dominant agent-workload set):
+//! The fork-side options for embedding ripgrep behavior are:
 //!
-//! | Flag | Behavior |
-//! |---|---|
-//! | `-r` / `-R` | Recursive (auto if a directory is given) |
-//! | `-i` | Case-insensitive |
-//! | `-n` | Show line numbers |
-//! | `-c` | Print only count of matching lines per file |
-//! | `-l` | Print only filenames with matches |
-//! | `-L` | Print only filenames without matches |
-//! | `-h` / `-H` | Suppress / force filename prefix |
-//! | `-o` | Print only the matching part of each line |
-//! | `-v` | Invert match |
-//! | `-w` | Word boundary |
-//! | `-x` | Whole-line match |
-//! | `-q` | Quiet (exit only) |
-//! | `-E` | Extended regex (default) |
-//! | `-F` | Fixed string (no regex metacharacters) |
-//! | `-P` | PCRE2 mode (the headline reason for this cycle) |
-//! | `-e PATTERN` | Pattern (can repeat) |
-//! | `-A N` / `-B N` / `-C N` | After / before / context lines |
-//! | `-m N` / `--max-count N` | Stop after N matches per file |
-//! | `--include GLOB` / `--exclude GLOB` | File path filters |
-//! | `--no-ignore` | Don't honor `.gitignore` |
-//! | `--hidden` | Don't skip hidden files / directories |
-//! | `--color WHEN` | `always`/`never`/`auto` (default `never`) |
+//! 1. **Vendor `crates/core/`** as a workspace member exposing
+//!    `pub fn rg_main(args)` (highest fidelity, ~5k lines of code to
+//!    track).
+//! 2. **Re-implement using `BurntSushi`'s published library family**
+//!    (`grep`, `grep-searcher`, `grep-regex`, `grep-pcre2`,
+//!    `grep-printer`, `ignore`, `globset`, `walkdir`).
+//! 3. **Roll a thin line-based adapter** over `regex` + `pcre2` +
+//!    `ignore` + `globset` — what this module does. Keeps the binary
+//!    size and dependency surface bounded; gives up some of ripgrep's
+//!    speed and the more exotic flag semantics.
+//!
+//! Layer 2 of the [`bundled-extras-cli-fidelity`][p] plan is the
+//! vendoring path. This module is Layer 1: full flag *recognition*
+//! via `clap`-derive so agents don't get "unknown option" errors,
+//! plus a more-complete behavior surface than the previous hand-rolled
+//! parser.
+//!
+//! [p]: ../../docs/planning/bundled-extras-cli-fidelity.md
+//!
+//! ## Mode-aware behavior
+//!
+//! The same engine drives four registered names; behavior branches at
+//! the entry function level on [`Mode`]:
+//!
+//! | Mode | `gitignore` honored? | smart-case | auto-recurse on dir? | `-s` |
+//! |---|---|---|---|---|
+//! | [`Mode::Rg`] | yes | yes | yes | `--case-sensitive` |
+//! | [`Mode::Grep`] | no | no | no (errors w/o `-r`) | `--no-messages` |
+//! | [`Mode::Egrep`] | no (= `grep -E`) | no | no | `--no-messages` |
+//! | [`Mode::Fgrep`] | no (= `grep -F`) | no | no | `--no-messages` |
+//!
+//! GNU-grep–only shortcuts handled by [`preprocess_argv`]:
+//! `-NUM` → `-C NUM`, `-y` → `-i`, `-s` → `--no-messages` (only in
+//! grep modes; in rg mode `-s` keeps its ripgrep meaning).
 
 #![allow(
     clippy::too_many_lines,
@@ -54,51 +61,490 @@
     clippy::if_not_else,
     clippy::collapsible_if,
     clippy::collapsible_else_if,
+    clippy::module_name_repetitions,
     reason = "ripgrep CLI orchestration is intrinsically branchy and parameter-heavy; refactoring obscures the flag-by-flag mapping"
 )]
 
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use clap::Parser;
 use ignore::WalkBuilder;
+use ignore::types::TypesBuilder;
+
+const ADAPTER_VERSION: &str = "0.2.0";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mode {
+    Rg,
+    Grep,
+    Egrep,
+    Fgrep,
+}
+
+impl Mode {
+    const fn cmd_name(self) -> &'static str {
+        match self {
+            Self::Rg => "rg",
+            Self::Grep => "grep",
+            Self::Egrep => "egrep",
+            Self::Fgrep => "fgrep",
+        }
+    }
+
+    const fn is_grep_family(self) -> bool {
+        matches!(self, Self::Grep | Self::Egrep | Self::Fgrep)
+    }
+}
 
 pub(crate) fn rg_main(args: Vec<OsString>) -> i32 {
-    run(args, AliasMode::None)
+    run(args, Mode::Rg)
 }
 
-/// `grep` alias — same as `rg` for our purposes.
+/// `grep` — GNU grep semantics with PCRE2 via `-P`.
 pub(crate) fn grep_main(args: Vec<OsString>) -> i32 {
-    run(args, AliasMode::None)
+    run(args, Mode::Grep)
 }
 
-/// `egrep` alias — extended regex (also the default).
+/// `egrep` — GNU `grep -E` (extended regex, the default in our engine).
 pub(crate) fn egrep_main(args: Vec<OsString>) -> i32 {
-    run(args, AliasMode::ForceExtended)
+    run(args, Mode::Egrep)
 }
 
-/// `fgrep` alias — fixed-string match.
+/// `fgrep` — GNU `grep -F` (fixed-string match).
 pub(crate) fn fgrep_main(args: Vec<OsString>) -> i32 {
-    run(args, AliasMode::ForceFixed)
+    run(args, Mode::Fgrep)
 }
 
-#[derive(Clone, Copy)]
-enum AliasMode {
-    None,
-    ForceExtended,
-    ForceFixed,
+// =====================================================================
+// CLI
+// =====================================================================
+//
+// One clap-derive struct serves all four registered names; mode-aware
+// dispatch happens before the parser via [`preprocess_argv`] (handling
+// the `-s` and `-NUM` GNU-vs-rg differences) and after the parser via
+// [`Cfg::from_cli`] (defaults).
+//
+// When extending: prefer adding both short and long. If a short flag
+// would conflict between GNU and ripgrep, define it for the rg meaning
+// and rewrite it in [`preprocess_argv`] for the grep family.
+
+#[derive(clap::Parser, Debug)]
+#[command(
+    name = "rg",
+    version = ADAPTER_VERSION,
+    about = "Recursively search for patterns. Bundled regex+PCRE2+ignore implementation.",
+    long_about = None,
+    disable_help_flag = true,
+    disable_version_flag = true,
+    override_usage = "rg [OPTIONS] PATTERN [PATH...]\n       rg [OPTIONS] -e PATTERN [-e PATTERN ...] [PATH...]\n       rg [OPTIONS] -f PATTERNFILE [PATH...]",
+)]
+struct Cli {
+    /// Show help and exit. ripgrep / GNU grep both use long-only `--help`;
+    /// the short `-h` is reserved for `--no-filename`.
+    #[arg(long = "help", action = clap::ArgAction::Help)]
+    help_flag: Option<bool>,
+
+    // ---- Pattern selection ---------------------------------------
+    #[arg(short = 'e', long = "regexp", value_name = "PATTERN")]
+    pattern_e: Vec<String>,
+
+    #[arg(short = 'f', long = "file", value_name = "PATTERNFILE")]
+    pattern_file: Vec<PathBuf>,
+
+    #[arg(short = 'F', long = "fixed-strings")]
+    fixed: bool,
+
+    #[arg(short = 'E', long = "extended-regexp")]
+    extended: bool,
+
+    /// Basic regex (treated as ERE by our engine; agents rarely use BRE)
+    #[arg(short = 'G', long = "basic-regexp")]
+    basic: bool,
+
+    #[arg(short = 'P', long = "perl-regexp")]
+    pcre2: bool,
+
+    #[arg(long = "engine", value_name = "ENGINE", default_value = "default")]
+    engine: String,
+
+    // ---- Match control -------------------------------------------
+    #[arg(short = 'i', long = "ignore-case")]
+    ignore_case: bool,
+
+    #[arg(short = 'S', long = "smart-case")]
+    smart_case: bool,
+
+    #[arg(long = "case-sensitive")]
+    case_sensitive: bool,
+
+    #[arg(short = 'w', long = "word-regexp")]
+    word: bool,
+
+    #[arg(short = 'x', long = "line-regexp")]
+    line_regexp: bool,
+
+    #[arg(short = 'v', long = "invert-match")]
+    invert: bool,
+
+    #[arg(short = 'm', long = "max-count", value_name = "NUM")]
+    max_count: Option<u64>,
+
+    #[arg(short = 'U', long = "multiline")]
+    multiline: bool,
+
+    #[arg(long = "multiline-dotall")]
+    multiline_dotall: bool,
+
+    #[arg(long = "no-unicode")]
+    no_unicode: bool,
+
+    #[arg(long = "no-pcre2-unicode")]
+    no_pcre2_unicode: bool,
+
+    // ---- Output control ------------------------------------------
+    #[arg(short = 'n', long = "line-number")]
+    line_number: bool,
+
+    #[arg(short = 'N', long = "no-line-number")]
+    no_line_number: bool,
+
+    #[arg(long = "column")]
+    column: bool,
+
+    #[arg(short = 'c', long = "count")]
+    count: bool,
+
+    #[arg(long = "count-matches")]
+    count_matches: bool,
+
+    #[arg(short = 'l', long = "files-with-matches")]
+    files_with_matches: bool,
+
+    #[arg(short = 'L', long = "files-without-match")]
+    files_without_match: bool,
+
+    /// Suppress filename prefix (GNU: -h)
+    #[arg(short = 'h', long = "no-filename")]
+    no_filename: bool,
+
+    /// Force filename prefix (GNU: -H)
+    #[arg(short = 'H', long = "with-filename")]
+    with_filename: bool,
+
+    #[arg(short = 'o', long = "only-matching")]
+    only_matching: bool,
+
+    #[arg(long = "passthru", visible_alias = "passthrough")]
+    passthru: bool,
+
+    #[arg(short = 'A', long = "after-context", value_name = "NUM")]
+    after_context: Option<usize>,
+
+    #[arg(short = 'B', long = "before-context", value_name = "NUM")]
+    before_context: Option<usize>,
+
+    #[arg(short = 'C', long = "context", value_name = "NUM")]
+    context: Option<usize>,
+
+    #[arg(long = "context-separator", value_name = "SEP")]
+    context_separator: Option<String>,
+
+    #[arg(long = "no-context-separator")]
+    no_context_separator: bool,
+
+    #[arg(short = 'b', long = "byte-offset")]
+    byte_offset: bool,
+
+    #[arg(long = "trim")]
+    trim: bool,
+
+    #[arg(long = "vimgrep")]
+    vimgrep: bool,
+
+    #[arg(long = "json")]
+    json: bool,
+
+    #[arg(long = "no-heading")]
+    no_heading: bool,
+
+    #[arg(long = "heading")]
+    heading: bool,
+
+    #[arg(long = "label", value_name = "LABEL")]
+    label: Option<String>,
+
+    #[arg(short = 'q', long = "quiet", visible_alias = "silent")]
+    quiet: bool,
+
+    #[arg(short = '0', long = "null")]
+    null: bool,
+
+    /// GNU grep `--null` short
+    #[arg(short = 'Z', hide = true)]
+    null_z: bool,
+
+    #[arg(long = "null-data")]
+    null_data: bool,
+
+    /// ripgrep: search inside compressed files. We accept the flag
+    /// (no error) but currently don't decompress.
+    #[arg(short = 'z', long = "search-zip")]
+    search_zip: bool,
+
+    #[arg(short = 'T', long = "initial-tab")]
+    initial_tab: bool,
+
+    #[arg(long = "color", visible_alias = "colour", value_name = "WHEN")]
+    color: Option<String>,
+
+    #[arg(long = "no-color")]
+    no_color: bool,
+
+    #[arg(long = "stats")]
+    stats: bool,
+
+    #[arg(long = "debug")]
+    debug: bool,
+
+    /// ripgrep: report adapter version (separate from `--version`)
+    #[arg(long = "version", short = 'V')]
+    version_flag: bool,
+
+    // ---- File / path selection -----------------------------------
+    #[arg(
+        short = 'r',
+        long = "recursive",
+        visible_alias = "dereference-recursive"
+    )]
+    recursive: bool,
+
+    /// `-R` is the same as `-r` for our purposes
+    #[arg(short = 'R', hide = true)]
+    recursive_r: bool,
+
+    #[arg(short = 'a', long = "text")]
+    text: bool,
+
+    #[arg(long = "binary")]
+    binary: bool,
+
+    #[arg(long = "no-binary")]
+    no_binary: bool,
+
+    #[arg(long = "binary-files", value_name = "TYPE")]
+    binary_files: Option<String>,
+
+    #[arg(long = "include", value_name = "GLOB")]
+    include: Vec<String>,
+
+    #[arg(long = "exclude", value_name = "GLOB")]
+    exclude: Vec<String>,
+
+    #[arg(long = "exclude-dir", value_name = "GLOB")]
+    exclude_dir: Vec<String>,
+
+    #[arg(long = "exclude-from", value_name = "FILE")]
+    exclude_from: Vec<PathBuf>,
+
+    #[arg(short = 'g', long = "glob", value_name = "GLOB")]
+    glob: Vec<String>,
+
+    #[arg(long = "iglob", value_name = "GLOB")]
+    iglob: Vec<String>,
+
+    #[arg(long = "ignore-file", value_name = "PATH")]
+    ignore_file: Vec<PathBuf>,
+
+    #[arg(short = 't', long = "type", value_name = "TYPE")]
+    type_: Vec<String>,
+
+    #[arg(long = "type-not", value_name = "TYPE")]
+    type_not: Vec<String>,
+
+    #[arg(long = "type-list")]
+    type_list: bool,
+
+    #[arg(long = "type-add", value_name = "SPEC")]
+    type_add: Vec<String>,
+
+    #[arg(long = "type-clear", value_name = "TYPE")]
+    type_clear: Vec<String>,
+
+    #[arg(long = "no-ignore")]
+    no_ignore: bool,
+
+    #[arg(long = "no-ignore-vcs")]
+    no_ignore_vcs: bool,
+
+    #[arg(long = "no-ignore-global")]
+    no_ignore_global: bool,
+
+    #[arg(long = "no-ignore-parent")]
+    no_ignore_parent: bool,
+
+    #[arg(long = "no-ignore-dot")]
+    no_ignore_dot: bool,
+
+    #[arg(long = "no-ignore-exclude")]
+    no_ignore_exclude: bool,
+
+    #[arg(long = "no-ignore-files")]
+    no_ignore_files: bool,
+
+    #[arg(long = "no-ignore-messages")]
+    no_ignore_messages: bool,
+
+    #[arg(long = "hidden", visible_alias = "no-hidden")]
+    hidden: bool,
+
+    /// follow symlinks
+    #[arg(long = "follow", visible_alias = "dereference")]
+    follow: bool,
+
+    #[arg(long = "max-depth", value_name = "NUM")]
+    max_depth: Option<usize>,
+
+    #[arg(long = "max-filesize", value_name = "SIZE")]
+    max_filesize: Option<String>,
+
+    #[arg(long = "one-file-system")]
+    one_file_system: bool,
+
+    /// GNU grep `--devices=ACTION` (read|skip)
+    #[arg(short = 'D', long = "devices", value_name = "ACTION")]
+    devices: Option<String>,
+
+    /// GNU grep `--directories=ACTION` (read|skip|recurse)
+    #[arg(short = 'd', long = "directories", value_name = "ACTION")]
+    directories: Option<String>,
+
+    /// `--no-messages` (GNU `-s`; rewritten in `preprocess_argv` for grep mode)
+    #[arg(long = "no-messages")]
+    no_messages: bool,
+
+    // ---- Performance / runtime -----------------------------------
+    #[arg(short = 'j', long = "threads", value_name = "NUM")]
+    threads: Option<usize>,
+
+    #[arg(long = "mmap")]
+    mmap: bool,
+
+    #[arg(long = "no-mmap")]
+    no_mmap: bool,
+
+    #[arg(long = "encoding", value_name = "ENC")]
+    encoding: Option<String>,
+
+    #[arg(long = "pre", value_name = "COMMAND")]
+    pre: Option<String>,
+
+    #[arg(long = "pre-glob", value_name = "GLOB")]
+    pre_glob: Vec<String>,
+
+    #[arg(long = "no-config")]
+    no_config: bool,
+
+    #[arg(long = "line-buffered")]
+    line_buffered: bool,
+
+    #[arg(long = "block-buffered")]
+    block_buffered: bool,
+
+    #[arg(long = "sort", value_name = "SORTBY")]
+    sort: Option<String>,
+
+    #[arg(long = "sortr", value_name = "SORTBY")]
+    sort_reverse: Option<String>,
+
+    /// All positional arguments — first is pattern (unless -e/-f given),
+    /// rest are paths
+    #[arg(allow_hyphen_values = false, trailing_var_arg = true)]
+    positional: Vec<OsString>,
 }
 
-#[derive(Default)]
+// =====================================================================
+// Argv preprocessing — handle GNU-vs-rg ambiguities
+// =====================================================================
+
+/// Rewrite mode-specific short flags before clap sees them.
+///
+/// We only rewrite where a single token has different meanings between
+/// GNU grep and ripgrep, or where GNU has a shortcut clap can't express
+/// natively (`-NUM`).
+fn preprocess_argv(args: Vec<OsString>, mode: Mode) -> Vec<OsString> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut iter = args.into_iter();
+    if let Some(name) = iter.next() {
+        out.push(name);
+    }
+    let mut after_double_dash = false;
+    for arg in iter {
+        if after_double_dash {
+            out.push(arg);
+            continue;
+        }
+        let s = arg.to_string_lossy();
+        if s == "--" {
+            after_double_dash = true;
+            out.push(arg);
+            continue;
+        }
+
+        if mode.is_grep_family() {
+            // GNU `-s` = `--no-messages`; rg `-s` = `--case-sensitive`.
+            // Our clap schema does not define `-s` (we expose
+            // `--case-sensitive` long-only) so this rewrite is unambiguous
+            // for the grep family.
+            if s == "-s" {
+                out.push(OsString::from("--no-messages"));
+                continue;
+            }
+            // GNU `-y` is documented as `-i` synonym
+            if s == "-y" {
+                out.push(OsString::from("-i"));
+                continue;
+            }
+            // GNU `-NUM` shortcut for `-C NUM` (e.g. `-3` means 3 lines context)
+            if let Some(rest) = s.strip_prefix('-')
+                && !rest.is_empty()
+                && rest.chars().all(|c| c.is_ascii_digit())
+            {
+                out.push(OsString::from("-C"));
+                out.push(OsString::from(rest.to_string()));
+                continue;
+            }
+        } else {
+            // rg-mode rewrites
+            // `-s` in rg means --case-sensitive — clap doesn't have a `-s`
+            // short, so rewrite it
+            if s == "-s" {
+                out.push(OsString::from("--case-sensitive"));
+                continue;
+            }
+        }
+        out.push(arg);
+    }
+    out
+}
+
+// =====================================================================
+// Resolved configuration (post-clap, mode-aware defaults applied)
+// =====================================================================
+
+#[derive(Default, Debug)]
 struct Cfg {
     patterns: Vec<String>,
     paths: Vec<PathBuf>,
     ignore_case: bool,
+    smart_case: bool,
     line_numbers: bool,
+    column: bool,
     count: bool,
     files_with_matches: bool,
     files_without_matches: bool,
@@ -116,49 +562,317 @@ struct Cfg {
     recursive: bool,
     no_ignore: bool,
     hidden: bool,
+    follow: bool,
+    max_depth: Option<usize>,
     color_always: bool,
+    null_separator: bool,
+    initial_tab: bool,
+    byte_offset: bool,
+    trim: bool,
+    no_messages: bool,
+    passthru: bool,
+    multiline: bool,
+    multiline_dotall: bool,
+    text_binary: bool,
+    heading: bool,
+    no_heading: bool,
+    label: Option<String>,
     includes: Vec<String>,
     excludes: Vec<String>,
+    exclude_dirs: Vec<String>,
+    exclude_from: Vec<PathBuf>,
+    globs: Vec<String>,
+    iglobs: Vec<String>,
+    ignore_files: Vec<PathBuf>,
+    types: Vec<String>,
+    types_not: Vec<String>,
+    type_add: Vec<String>,
+    type_clear: Vec<String>,
+    directories_action: DirectoriesAction,
+    devices_action: DevicesAction,
+    binary_files: BinaryFiles,
 }
 
-fn run(args: Vec<OsString>, alias: AliasMode) -> i32 {
-    let argv: Vec<String> = args
-        .into_iter()
-        .map(|s| s.to_string_lossy().into_owned())
-        .collect();
-    let mut cfg = Cfg::default();
-    match alias {
-        AliasMode::None | AliasMode::ForceExtended => {}
-        AliasMode::ForceFixed => cfg.fixed = true,
-    }
-    if let Err(code) = parse_args(&argv, &mut cfg) {
-        return code;
-    }
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+enum DirectoriesAction {
+    #[default]
+    Read, // GNU default: error on dir without -r
+    Skip,
+    Recurse,
+}
 
-    if cfg.patterns.is_empty() {
-        eprintln!("grep: no pattern provided");
-        return 2;
-    }
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+enum DevicesAction {
+    #[default]
+    Read,
+    Skip,
+}
 
-    if cfg.paths.is_empty() {
-        cfg.paths.push(PathBuf::from("-"));
-    }
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
+enum BinaryFiles {
+    #[default]
+    Auto,
+    Text,
+    WithoutMatch,
+    Binary,
+}
 
-    if cfg.show_filename.is_none() {
-        let any_dir = cfg
-            .paths
-            .iter()
-            .any(|p| p.as_path() != Path::new("-") && p.is_dir());
-        cfg.show_filename = Some(any_dir || cfg.paths.len() > 1);
-        if any_dir {
-            cfg.recursive = true;
+impl Cfg {
+    fn from_cli(cli: Cli, mode: Mode) -> Result<Self, i32> {
+        let mut cfg = Self::default();
+
+        // Patterns: -e and -f take precedence over positional
+        cfg.patterns.extend(cli.pattern_e);
+        for pf in &cli.pattern_file {
+            let content = std::fs::read_to_string(pf).map_err(|e| {
+                eprintln!("{}: {}: {e}", mode.cmd_name(), pf.display());
+                2
+            })?;
+            for line in content.lines() {
+                cfg.patterns.push(line.to_string());
+            }
         }
+
+        // Positional: pattern (if no -e/-f) + paths
+        let mut pos_iter = cli.positional.into_iter();
+        if cfg.patterns.is_empty() {
+            if let Some(p) = pos_iter.next() {
+                cfg.patterns.push(p.to_string_lossy().into_owned());
+            }
+        }
+        for path in pos_iter {
+            cfg.paths.push(PathBuf::from(path));
+        }
+
+        if cfg.patterns.is_empty() {
+            eprintln!("{}: no pattern provided", mode.cmd_name());
+            return Err(2);
+        }
+
+        // Mode-driven flag overrides for egrep/fgrep
+        cfg.fixed = cli.fixed || mode == Mode::Fgrep;
+        // -E / -G are no-ops because our engine is RE2/ERE-equivalent;
+        // we keep them recognized so agents don't error out.
+        let _ = cli.extended;
+        let _ = cli.basic;
+        cfg.pcre2 = cli.pcre2 || cli.engine.eq_ignore_ascii_case("pcre2");
+
+        // Match control
+        cfg.ignore_case = cli.ignore_case;
+        // smart-case: rg-mode default; grep-mode opt-in only
+        cfg.smart_case = if cli.case_sensitive {
+            false
+        } else if cli.smart_case {
+            true
+        } else {
+            // rg defaults to smart-case OFF too — it's only with -S.
+            // Our previous adapter never had smart-case at all, so leave OFF
+            // unless explicitly requested.
+            false
+        };
+        cfg.word = cli.word;
+        cfg.whole_line = cli.line_regexp;
+        cfg.invert_match = cli.invert;
+        cfg.max_count = cli.max_count;
+        cfg.multiline = cli.multiline;
+        cfg.multiline_dotall = cli.multiline_dotall;
+
+        // Output control
+        cfg.line_numbers = cli.line_number && !cli.no_line_number;
+        cfg.column = cli.column;
+        cfg.count = cli.count || cli.count_matches;
+        cfg.files_with_matches = cli.files_with_matches;
+        cfg.files_without_matches = cli.files_without_match;
+        cfg.only_matching = cli.only_matching;
+        cfg.passthru = cli.passthru;
+        cfg.byte_offset = cli.byte_offset;
+        cfg.trim = cli.trim;
+        cfg.quiet = cli.quiet;
+        cfg.heading = cli.heading;
+        cfg.no_heading = cli.no_heading;
+        cfg.label = cli.label;
+        cfg.no_messages = cli.no_messages;
+        cfg.initial_tab = cli.initial_tab;
+        cfg.null_separator = cli.null || cli.null_z || cli.null_data;
+        cfg.show_filename = if cli.no_filename {
+            Some(false)
+        } else if cli.with_filename {
+            Some(true)
+        } else {
+            None
+        };
+
+        // Context
+        if let Some(c) = cli.context {
+            cfg.after = c;
+            cfg.before = c;
+        }
+        if let Some(a) = cli.after_context {
+            cfg.after = a;
+        }
+        if let Some(b) = cli.before_context {
+            cfg.before = b;
+        }
+
+        // Color
+        cfg.color_always = matches!(
+            cli.color.as_deref(),
+            Some("always" | "yes" | "force") | None if cli.color.is_some()
+        ) && !cli.no_color;
+
+        // File selection
+        // ripgrep auto-recurses on dirs; GNU grep does not (errors w/o -r).
+        cfg.recursive = cli.recursive || cli.recursive_r;
+        cfg.includes = cli.include;
+        cfg.excludes = cli.exclude;
+        cfg.exclude_dirs = cli.exclude_dir;
+        cfg.exclude_from = cli.exclude_from;
+        cfg.globs = cli.glob;
+        cfg.iglobs = cli.iglob;
+        cfg.ignore_files = cli.ignore_file;
+        cfg.types = cli.type_;
+        cfg.types_not = cli.type_not;
+        cfg.type_add = cli.type_add;
+        cfg.type_clear = cli.type_clear;
+        cfg.no_ignore = cli.no_ignore
+            || cli.no_ignore_vcs
+            || cli.no_ignore_global
+            || cli.no_ignore_parent
+            || cli.no_ignore_dot
+            || cli.no_ignore_exclude
+            || cli.no_ignore_files
+            || mode.is_grep_family();
+        cfg.hidden = cli.hidden || mode.is_grep_family();
+        cfg.follow = cli.follow;
+        cfg.max_depth = cli.max_depth;
+
+        cfg.directories_action = match cli.directories.as_deref() {
+            Some("read") => DirectoriesAction::Read,
+            Some("skip") => DirectoriesAction::Skip,
+            Some("recurse") => DirectoriesAction::Recurse,
+            None => {
+                if mode.is_grep_family() {
+                    DirectoriesAction::Read
+                } else {
+                    DirectoriesAction::Recurse
+                }
+            }
+            _ => DirectoriesAction::Read,
+        };
+        cfg.devices_action = match cli.devices.as_deref() {
+            Some("skip") => DevicesAction::Skip,
+            _ => DevicesAction::Read,
+        };
+        cfg.binary_files = match cli.binary_files.as_deref() {
+            Some("text") => BinaryFiles::Text,
+            Some("without-match") => BinaryFiles::WithoutMatch,
+            Some("binary") => BinaryFiles::Binary,
+            _ => {
+                if cli.text || cli.binary {
+                    BinaryFiles::Text
+                } else {
+                    BinaryFiles::Auto
+                }
+            }
+        };
+        cfg.text_binary =
+            cli.text || matches!(cfg.binary_files, BinaryFiles::Text | BinaryFiles::Binary);
+
+        // ignored-but-accepted flags (no-op): vimgrep, json, stats, debug,
+        // mmap/no-mmap, encoding, pre, pre-glob, no-config, line-buffered,
+        // block-buffered, sort, sortr, threads, no-unicode, no-pcre2-unicode,
+        // search-zip, no-binary, no-context-separator, context-separator,
+        // one-file-system, max-filesize, ignore-messages
+        let _ = (
+            cli.vimgrep,
+            cli.json,
+            cli.stats,
+            cli.debug,
+            cli.mmap,
+            cli.no_mmap,
+            cli.encoding,
+            cli.pre,
+            cli.pre_glob,
+            cli.no_config,
+            cli.line_buffered,
+            cli.block_buffered,
+            cli.sort,
+            cli.sort_reverse,
+            cli.threads,
+            cli.no_unicode,
+            cli.no_pcre2_unicode,
+            cli.search_zip,
+            cli.no_binary,
+            cli.no_context_separator,
+            cli.context_separator,
+            cli.one_file_system,
+            cli.max_filesize,
+            cli.no_ignore_messages,
+        );
+
+        // Default paths: stdin
+        if cfg.paths.is_empty() {
+            cfg.paths.push(PathBuf::from("-"));
+        }
+
+        // Default show_filename: yes if any path is a directory or
+        // multiple paths
+        if cfg.show_filename.is_none() {
+            let any_dir = cfg
+                .paths
+                .iter()
+                .any(|p| p.as_path() != Path::new("-") && p.is_dir());
+            cfg.show_filename = Some(any_dir || cfg.paths.len() > 1);
+            // rg-mode auto-recurses on directories; grep-mode does not
+            if any_dir && !mode.is_grep_family() {
+                cfg.recursive = true;
+            }
+        }
+
+        Ok(cfg)
     }
+}
+
+// =====================================================================
+// Entry-point dispatch
+// =====================================================================
+
+fn run(args: Vec<OsString>, mode: Mode) -> i32 {
+    let argv = preprocess_argv(args, mode);
+    let cli = match Cli::try_parse_from(argv) {
+        Ok(c) => c,
+        Err(e) => {
+            let exit = match e.kind() {
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => 0,
+                _ => 2,
+            };
+            let _ = e.print();
+            return exit;
+        }
+    };
+
+    // --version handled manually so we can show the right banner per mode
+    if cli.version_flag {
+        print_version(mode);
+        return 0;
+    }
+    // --type-list is independent of pattern, handle before Cfg validation
+    if cli.type_list {
+        print_type_list();
+        return 0;
+    }
+
+    let cfg = match Cfg::from_cli(cli, mode) {
+        Ok(c) => c,
+        Err(code) => return code,
+    };
 
     let engine = match build_engine(&cfg) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("grep: {e}");
+            if !cfg.no_messages {
+                eprintln!("{}: {e}", mode.cmd_name());
+            }
             return 2;
         }
     };
@@ -170,198 +884,61 @@ fn run(args: Vec<OsString>, alias: AliasMode) -> i32 {
     for path in &cfg.paths {
         if path.as_os_str() == "-" {
             let stdin = io::stdin();
+            let label = cfg.label.as_deref().unwrap_or("(standard input)");
             search_reader(
                 BufReader::new(stdin.lock()),
-                "(standard input)",
+                label,
                 &engine,
                 &cfg,
                 &out,
                 &any_match,
+                mode,
             );
             continue;
         }
         if path.is_dir() {
-            walk_dir(path, &engine, &cfg, &out, &any_match);
+            match cfg.directories_action {
+                DirectoriesAction::Skip => {}
+                DirectoriesAction::Read => {
+                    if cfg.recursive {
+                        walk_dir(path, &engine, &cfg, &out, &any_match, mode);
+                    } else if !cfg.no_messages {
+                        eprintln!("{}: {}: Is a directory", mode.cmd_name(), path.display());
+                    }
+                }
+                DirectoriesAction::Recurse => {
+                    walk_dir(path, &engine, &cfg, &out, &any_match, mode);
+                }
+            }
         } else {
-            search_path(path, &engine, &cfg, &out, &any_match);
+            search_path(path, &engine, &cfg, &out, &any_match, mode);
         }
     }
     i32::from(!any_match.load(Ordering::SeqCst))
 }
 
-fn parse_args(argv: &[String], cfg: &mut Cfg) -> Result<(), i32> {
-    let mut i = 1;
-    let mut after_double_dash = false;
-    while i < argv.len() {
-        let arg = &argv[i];
-        if after_double_dash {
-            if cfg.patterns.is_empty() {
-                cfg.patterns.push(arg.clone());
-            } else {
-                cfg.paths.push(PathBuf::from(arg));
-            }
-            i += 1;
-            continue;
-        }
-        match arg.as_str() {
-            "--" => after_double_dash = true,
-            "-h" => cfg.show_filename = Some(false),
-            "-H" => cfg.show_filename = Some(true),
-            "-i" | "--ignore-case" => cfg.ignore_case = true,
-            "-n" | "--line-number" => cfg.line_numbers = true,
-            "-c" | "--count" => cfg.count = true,
-            "-l" | "--files-with-matches" => cfg.files_with_matches = true,
-            "-L" | "--files-without-match" => cfg.files_without_matches = true,
-            "-o" | "--only-matching" => cfg.only_matching = true,
-            "-v" | "--invert-match" => cfg.invert_match = true,
-            "-w" | "--word-regexp" => cfg.word = true,
-            "-x" | "--line-regexp" => cfg.whole_line = true,
-            "-q" | "--quiet" | "--silent" => cfg.quiet = true,
-            "-F" | "--fixed-strings" => cfg.fixed = true,
-            "-E" | "--extended-regexp" => { /* default */ }
-            "-P" | "--perl-regexp" => cfg.pcre2 = true,
-            "-r" | "-R" | "--recursive" | "--dereference-recursive" => cfg.recursive = true,
-            "--no-ignore" => cfg.no_ignore = true,
-            "--hidden" => cfg.hidden = true,
-            "--help" => {
-                print_help();
-                return Err(0);
-            }
-            "--version" => {
-                println!("rg / grep (brush-bundled-extras regex+pcre2) 0.1.6");
-                println!("PCRE2 enabled");
-                return Err(0);
-            }
-            "-e" | "--regexp" => {
-                i += 1;
-                let v = arg_or_err(argv.get(i), "-e")?;
-                cfg.patterns.push(v.clone());
-            }
-            "-A" | "--after-context" => {
-                i += 1;
-                cfg.after = parse_usize(argv.get(i), "-A")?;
-            }
-            "-B" | "--before-context" => {
-                i += 1;
-                cfg.before = parse_usize(argv.get(i), "-B")?;
-            }
-            "-C" | "--context" => {
-                i += 1;
-                let n = parse_usize(argv.get(i), "-C")?;
-                cfg.after = n;
-                cfg.before = n;
-            }
-            "-m" | "--max-count" => {
-                i += 1;
-                cfg.max_count = Some(parse_u64(argv.get(i), "-m")?);
-            }
-            "--include" => {
-                i += 1;
-                cfg.includes
-                    .push(arg_or_err(argv.get(i), "--include")?.clone());
-            }
-            "--exclude" => {
-                i += 1;
-                cfg.excludes
-                    .push(arg_or_err(argv.get(i), "--exclude")?.clone());
-            }
-            "--color" | "--colour" => {
-                i += 1;
-                cfg.color_always = matches!(
-                    arg_or_err(argv.get(i), "--color")?.as_str(),
-                    "always" | "yes"
-                );
-            }
-            s if s.starts_with("--color=") || s.starts_with("--colour=") => {
-                let v = s.split_once('=').map_or("", |(_, v)| v);
-                cfg.color_always = matches!(v, "always" | "yes");
-            }
-            s if s.starts_with("--include=") => {
-                cfg.includes
-                    .push(s.trim_start_matches("--include=").to_string());
-            }
-            s if s.starts_with("--exclude=") => {
-                cfg.excludes
-                    .push(s.trim_start_matches("--exclude=").to_string());
-            }
-            s if s.starts_with('-') && s.len() > 1 && !s.starts_with("--") => {
-                if !try_parse_short_bundle(s, cfg) {
-                    eprintln!("grep: unknown option: {s}");
-                    return Err(2);
-                }
-            }
-            s if s.starts_with("--") => {
-                eprintln!("grep: unknown option: {s}");
-                return Err(2);
-            }
-            _ => {
-                if cfg.patterns.is_empty() {
-                    cfg.patterns.push(arg.clone());
-                } else {
-                    cfg.paths.push(PathBuf::from(arg));
-                }
-            }
-        }
-        i += 1;
+fn print_version(mode: Mode) {
+    let canonical = mode.cmd_name();
+    println!("{canonical} (brush-bundled-extras regex+pcre2+ignore+globset) {ADAPTER_VERSION}");
+    println!(
+        "PCRE2 enabled · gitignore-aware via `ignore` crate · `-t TYPE` via ripgrep type defs"
+    );
+    println!("Bundled inside brush — for full ripgrep, install BurntSushi/ripgrep externally.");
+}
+
+fn print_type_list() {
+    let mut tb = TypesBuilder::new();
+    tb.add_defaults();
+    let types = tb.definitions();
+    for def in types {
+        let globs: Vec<&str> = def.globs().iter().map(String::as_str).collect();
+        println!("{}: {}", def.name(), globs.join(", "));
     }
-    Ok(())
 }
 
-fn try_parse_short_bundle(s: &str, cfg: &mut Cfg) -> bool {
-    for ch in s.chars().skip(1) {
-        match ch {
-            'i' => cfg.ignore_case = true,
-            'n' => cfg.line_numbers = true,
-            'c' => cfg.count = true,
-            'l' => cfg.files_with_matches = true,
-            'L' => cfg.files_without_matches = true,
-            'h' => cfg.show_filename = Some(false),
-            'H' => cfg.show_filename = Some(true),
-            'o' => cfg.only_matching = true,
-            'v' => cfg.invert_match = true,
-            'w' => cfg.word = true,
-            'x' => cfg.whole_line = true,
-            'q' => cfg.quiet = true,
-            'F' => cfg.fixed = true,
-            'E' => { /* default */ }
-            'P' => cfg.pcre2 = true,
-            'r' | 'R' => cfg.recursive = true,
-            _ => return false,
-        }
-    }
-    true
-}
-
-fn parse_usize(s: Option<&String>, flag: &str) -> Result<usize, i32> {
-    s.ok_or_else(|| {
-        eprintln!("grep: option {flag} requires a value");
-        2
-    })?
-    .parse::<usize>()
-    .map_err(|e| {
-        eprintln!("grep: option {flag}: {e}");
-        2
-    })
-}
-
-fn parse_u64(s: Option<&String>, flag: &str) -> Result<u64, i32> {
-    s.ok_or_else(|| {
-        eprintln!("grep: option {flag} requires a value");
-        2
-    })?
-    .parse::<u64>()
-    .map_err(|e| {
-        eprintln!("grep: option {flag}: {e}");
-        2
-    })
-}
-
-fn arg_or_err<'a>(s: Option<&'a String>, flag: &str) -> Result<&'a String, i32> {
-    s.ok_or_else(|| {
-        eprintln!("grep: option {flag} requires a value");
-        2
-    })
-}
+// =====================================================================
+// Engine
+// =====================================================================
 
 enum Engine {
     Regex(regex::Regex),
@@ -383,19 +960,35 @@ fn build_engine(cfg: &Cfg) -> Result<Engine, String> {
         combined
     };
 
+    // Smart-case: only force case-insensitive if pattern has no uppercase
+    let force_icase =
+        cfg.ignore_case || (cfg.smart_case && !pattern.chars().any(|c| c.is_uppercase()));
+
     if cfg.pcre2 {
         let mut b = pcre2::bytes::RegexBuilder::new();
-        b.caseless(cfg.ignore_case);
-        b.multi_line(false);
+        b.caseless(force_icase);
+        // multiline-dotall: in PCRE2, that's `(?s)` + `(?m)` modifiers via flags
+        if cfg.multiline_dotall {
+            b.dotall(true);
+        }
+        if cfg.multiline {
+            b.multi_line(true);
+        }
         b.build(&pattern)
             .map(Engine::Pcre2)
             .map_err(|e| format!("PCRE2 compile error: {e}"))
     } else {
-        let pat = if cfg.ignore_case {
-            format!("(?i){pattern}")
-        } else {
-            pattern
-        };
+        let mut prefix = String::new();
+        if force_icase {
+            prefix.push_str("(?i)");
+        }
+        if cfg.multiline {
+            prefix.push_str("(?m)");
+        }
+        if cfg.multiline_dotall {
+            prefix.push_str("(?s)");
+        }
+        let pat = format!("{prefix}{pattern}");
         regex::Regex::new(&pat)
             .map(Engine::Regex)
             .map_err(|e| format!("regex compile error: {e}"))
@@ -426,17 +1019,104 @@ fn engine_find(engine: &Engine, line: &[u8]) -> Option<(usize, usize)> {
     }
 }
 
+/// All non-overlapping matches in `line`, in order. Used by `-o` /
+/// `--only-matching` so multi-match lines emit one row per match (real
+/// ripgrep / GNU grep behavior).
+fn engine_find_all(engine: &Engine, line: &[u8]) -> Vec<(usize, usize)> {
+    match engine {
+        Engine::Regex(r) => {
+            let Ok(s) = std::str::from_utf8(line) else {
+                return Vec::new();
+            };
+            r.find_iter(s).map(|m| (m.start(), m.end())).collect()
+        }
+        Engine::Pcre2(p) => {
+            let mut out = Vec::new();
+            let mut pos = 0;
+            while pos <= line.len() {
+                match p.find_at(line, pos) {
+                    Ok(Some(m)) => {
+                        let (s, e) = (m.start(), m.end());
+                        out.push((s, e));
+                        // Step forward to avoid infinite loop on zero-width matches.
+                        pos = if e == s { e + 1 } else { e };
+                    }
+                    _ => break,
+                }
+            }
+            out
+        }
+    }
+}
+
+// =====================================================================
+// Filesystem walking
+// =====================================================================
+
 fn walk_dir(
     root: &Path,
     engine: &Engine,
     cfg: &Cfg,
     out: &Mutex<io::StdoutLock<'_>>,
     any_match: &AtomicBool,
+    mode: Mode,
 ) {
     let mut wb = WalkBuilder::new(root);
     wb.standard_filters(!cfg.no_ignore);
     wb.hidden(!cfg.hidden);
-    if !cfg.includes.is_empty() || !cfg.excludes.is_empty() {
+    wb.follow_links(cfg.follow);
+    if let Some(depth) = cfg.max_depth {
+        wb.max_depth(Some(depth));
+    }
+    for ig in &cfg.ignore_files {
+        wb.add_custom_ignore_filename(ig);
+    }
+
+    // Type filter via `ignore::types::TypesBuilder` — same defs ripgrep uses
+    if !cfg.types.is_empty()
+        || !cfg.types_not.is_empty()
+        || !cfg.type_add.is_empty()
+        || !cfg.type_clear.is_empty()
+    {
+        let mut tb = TypesBuilder::new();
+        tb.add_defaults();
+        for c in &cfg.type_clear {
+            tb.clear(c);
+        }
+        for s in &cfg.type_add {
+            if let Err(e) = tb.add_def(s) {
+                if !cfg.no_messages {
+                    eprintln!("{}: --type-add: {e}", mode.cmd_name());
+                }
+                return;
+            }
+        }
+        for t in &cfg.types {
+            tb.select(t);
+        }
+        for t in &cfg.types_not {
+            tb.negate(t);
+        }
+        match tb.build() {
+            Ok(types) => {
+                wb.types(types);
+            }
+            Err(e) => {
+                if !cfg.no_messages {
+                    eprintln!("{}: --type: {e}", mode.cmd_name());
+                }
+                return;
+            }
+        }
+    }
+
+    // Glob filter via overrides
+    let has_overrides = !cfg.includes.is_empty()
+        || !cfg.excludes.is_empty()
+        || !cfg.exclude_dirs.is_empty()
+        || !cfg.globs.is_empty()
+        || !cfg.iglobs.is_empty();
+    if has_overrides {
         let mut overrides = ignore::overrides::OverrideBuilder::new(root);
         for pat in &cfg.includes {
             let _ = overrides.add(pat);
@@ -444,10 +1124,23 @@ fn walk_dir(
         for pat in &cfg.excludes {
             let _ = overrides.add(&format!("!{pat}"));
         }
+        for pat in &cfg.exclude_dirs {
+            let _ = overrides.add(&format!("!{pat}"));
+        }
+        for pat in &cfg.globs {
+            // ripgrep -g semantics: `!pat` excludes, `pat` includes
+            let _ = overrides.add(pat);
+        }
+        for pat in &cfg.iglobs {
+            // case-insensitive glob — best-effort: prepend `*` to match
+            let _ = overrides.case_insensitive(true);
+            let _ = overrides.add(pat);
+        }
         if let Ok(o) = overrides.build() {
             wb.overrides(o);
         }
     }
+
     for entry in wb.build() {
         let Ok(entry) = entry else { continue };
         let Some(ft) = entry.file_type() else {
@@ -456,7 +1149,7 @@ fn walk_dir(
         if !ft.is_file() {
             continue;
         }
-        search_path(entry.path(), engine, cfg, out, any_match);
+        search_path(entry.path(), engine, cfg, out, any_match, mode);
         if cfg.quiet && any_match.load(Ordering::SeqCst) {
             return;
         }
@@ -469,19 +1162,41 @@ fn search_path(
     cfg: &Cfg,
     out: &Mutex<io::StdoutLock<'_>>,
     any_match: &AtomicBool,
+    mode: Mode,
 ) {
+    // Binary detection runs against a *separate* `File::open`. Sharing
+    // a handle via `try_clone` on Windows can advance the underlying
+    // file position, leaving the search-side BufReader pointing past
+    // the data; using two opens keeps the search reader at byte 0.
+    if matches!(cfg.binary_files, BinaryFiles::Auto) && !cfg.text_binary {
+        if let Ok(mut g) = File::open(path) {
+            let mut peek = [0u8; 8192];
+            if let Ok(n) = g.read(&mut peek) {
+                if peek[..n].contains(&0) {
+                    // Skip without printing — matches ripgrep + grep default.
+                    return;
+                }
+            }
+        }
+    }
+
     let f = match File::open(path) {
         Ok(f) => f,
         Err(e) => {
-            if !cfg.quiet {
-                eprintln!("grep: {}: {e}", path.display());
+            if !cfg.no_messages {
+                eprintln!("{}: {}: {e}", mode.cmd_name(), path.display());
             }
             return;
         }
     };
+
     let label = path.to_string_lossy();
-    search_reader(BufReader::new(f), &label, engine, cfg, out, any_match);
+    search_reader(BufReader::new(f), &label, engine, cfg, out, any_match, mode);
 }
+
+// =====================================================================
+// Per-reader search + output
+// =====================================================================
 
 fn search_reader<R: BufRead>(
     mut reader: R,
@@ -490,14 +1205,17 @@ fn search_reader<R: BufRead>(
     cfg: &Cfg,
     out: &Mutex<io::StdoutLock<'_>>,
     any_match: &AtomicBool,
+    mode: Mode,
 ) {
     let mut buf: Vec<u8> = Vec::new();
     let mut line_no: u64 = 0;
+    let mut byte_pos: u64 = 0;
     let mut match_count: u64 = 0;
     let mut had_match = false;
-    let mut before_buf: VecDeque<(u64, Vec<u8>)> = VecDeque::with_capacity(cfg.before + 1);
+    let mut before_buf: VecDeque<(u64, u64, Vec<u8>)> = VecDeque::with_capacity(cfg.before + 1);
     let mut after_remaining: usize = 0;
     let show_path = cfg.show_filename.unwrap_or(false);
+    let _ = mode;
 
     loop {
         buf.clear();
@@ -507,6 +1225,8 @@ fn search_reader<R: BufRead>(
             Err(_) => break,
         };
         line_no += 1;
+        let line_start_byte = byte_pos;
+        byte_pos += n as u64;
         let line = if buf.ends_with(b"\n") {
             &buf[..n - 1]
         } else {
@@ -542,34 +1262,28 @@ fn search_reader<R: BufRead>(
             if cfg.files_without_matches {
                 return;
             }
-            if !cfg.count && !cfg.files_with_matches && !cfg.files_without_matches {
+            if !cfg.count {
                 let mut o = out
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                // Emit context-before
-                while let Some((bn, bl)) = before_buf.pop_front() {
-                    write_line(
-                        &mut *o,
-                        show_path,
-                        label,
-                        cfg.line_numbers,
-                        bn,
-                        &bl,
-                        false,
-                        None,
-                    );
+                while let Some((bn, bb, bl)) = before_buf.pop_front() {
+                    write_line(&mut *o, show_path, label, cfg, bn, bb, &bl, false, None);
                 }
                 if cfg.only_matching {
-                    if let Some((s, e)) = m {
+                    // Real ripgrep / GNU grep emit ALL non-overlapping
+                    // matches on a line, each on its own row. Loop here
+                    // rather than printing only `m`.
+                    for (s, e) in engine_find_all(engine, line) {
                         write_line(
                             &mut *o,
                             show_path,
                             label,
-                            cfg.line_numbers,
+                            cfg,
                             line_no,
+                            line_start_byte + s as u64,
                             &line[s..e],
                             true,
-                            None,
+                            Some((0, e - s)),
                         );
                     }
                 } else {
@@ -577,8 +1291,9 @@ fn search_reader<R: BufRead>(
                         &mut *o,
                         show_path,
                         label,
-                        cfg.line_numbers,
+                        cfg,
                         line_no,
+                        line_start_byte,
                         line,
                         true,
                         m,
@@ -592,7 +1307,7 @@ fn search_reader<R: BufRead>(
                 }
             }
         } else {
-            if after_remaining > 0 {
+            if cfg.passthru && !cfg.count {
                 let mut o = out
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -600,8 +1315,24 @@ fn search_reader<R: BufRead>(
                     &mut *o,
                     show_path,
                     label,
-                    cfg.line_numbers,
+                    cfg,
                     line_no,
+                    line_start_byte,
+                    line,
+                    false,
+                    None,
+                );
+            } else if after_remaining > 0 {
+                let mut o = out
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                write_line(
+                    &mut *o,
+                    show_path,
+                    label,
+                    cfg,
+                    line_no,
+                    line_start_byte,
                     line,
                     false,
                     None,
@@ -612,7 +1343,7 @@ fn search_reader<R: BufRead>(
                 if before_buf.len() == cfg.before {
                     before_buf.pop_front();
                 }
-                before_buf.push_back((line_no, line.to_vec()));
+                before_buf.push_back((line_no, line_start_byte, line.to_vec()));
             }
         }
     }
@@ -639,67 +1370,40 @@ fn write_line<W: Write>(
     out: &mut W,
     show_path: bool,
     label: &str,
-    line_numbers: bool,
+    cfg: &Cfg,
     n: u64,
+    byte_offset: u64,
     line: &[u8],
     is_match: bool,
-    _highlight: Option<(usize, usize)>,
+    highlight: Option<(usize, usize)>,
 ) {
     let sep = if is_match { ':' } else { '-' };
+    let null_sep = if cfg.null_separator { '\0' } else { sep };
     if show_path {
-        let _ = write!(out, "{label}{sep}");
+        let _ = write!(out, "{label}{null_sep}");
     }
-    if line_numbers {
+    if cfg.line_numbers {
         let _ = write!(out, "{n}{sep}");
     }
-    let _ = out.write_all(line);
+    if cfg.column {
+        let col = highlight.map_or(0, |(s, _)| s + 1);
+        let _ = write!(out, "{col}{sep}");
+    }
+    if cfg.byte_offset {
+        let _ = write!(out, "{byte_offset}{sep}");
+    }
+    if cfg.initial_tab {
+        let _ = out.write_all(b"\t");
+    }
+    let written: &[u8] = if cfg.trim {
+        let mut start = 0;
+        while start < line.len() && (line[start] == b' ' || line[start] == b'\t') {
+            start += 1;
+        }
+        &line[start..]
+    } else {
+        line
+    };
+    let _ = out.write_all(written);
     let _ = out.write_all(b"\n");
-}
-
-fn print_help() {
-    println!(
-        "Usage: rg / grep [OPTIONS] PATTERN [PATH...]\n\
-         \n\
-         Recursively search for PATTERN. Built on `regex` + `pcre2` (for -P)\n\
-         with the `ignore` crate for gitignore-aware walks. Same gitignore\n\
-         handling ripgrep itself uses.\n\
-         \n\
-         Pattern selection:\n  \
-           -E, --extended-regexp    use extended regex (default)\n  \
-           -F, --fixed-strings      treat PATTERN as literal\n  \
-           -P, --perl-regexp        use PCRE2\n  \
-           -e, --regexp PATTERN     specify pattern (can repeat)\n\
-         \n\
-         Match control:\n  \
-           -i, --ignore-case        case-insensitive match\n  \
-           -w, --word-regexp        match whole words only\n  \
-           -x, --line-regexp        match whole lines only\n  \
-           -v, --invert-match       select non-matching lines\n  \
-           -m, --max-count N        stop after N matches per file\n\
-         \n\
-         Output control:\n  \
-           -n, --line-number        show line numbers\n  \
-           -c, --count              show match counts only\n  \
-           -l, --files-with-matches show only filenames with matches\n  \
-           -L, --files-without-match show only filenames without matches\n  \
-           -h                       suppress filename prefix\n  \
-           -H                       force filename prefix\n  \
-           -o, --only-matching      print only the matching part\n  \
-           -A, --after-context N    show N lines after each match\n  \
-           -B, --before-context N   show N lines before each match\n  \
-           -C, --context N          show N lines before AND after\n  \
-           -q, --quiet              suppress output, exit only\n\
-         \n\
-         File selection:\n  \
-           -r, -R, --recursive      recurse into directories\n  \
-           --include GLOB           include only files matching GLOB\n  \
-           --exclude GLOB           skip files matching GLOB\n  \
-           --no-ignore              don't honor .gitignore\n  \
-           --hidden                 don't skip hidden files/dirs\n\
-         \n\
-         Misc:\n  \
-           --color WHEN             always / never / auto (default: never)\n  \
-           --help                   show this help\n  \
-           --version                show version\n"
-    );
 }

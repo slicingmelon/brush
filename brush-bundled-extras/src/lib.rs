@@ -224,6 +224,9 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     #[cfg(feature = "extras.ripgrep")]
     {
         m.insert("rg".to_string(), ripgrep_adapter::rg_main as BundledFn);
+        // `ripgrep` is the canonical full name agents probe for.
+        // Same adapter as `rg`.
+        m.insert("ripgrep".to_string(), ripgrep_adapter::rg_main as BundledFn);
         m.insert("grep".to_string(), ripgrep_adapter::grep_main as BundledFn);
         m.insert(
             "egrep".to_string(),

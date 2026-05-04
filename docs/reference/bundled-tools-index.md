@@ -184,10 +184,10 @@ Source:
 | `xargs` | `uutils/findutils` | 0.8.0 | `experimental-bundled-extras-findutils` | 1.88 |
 | `sed` | `uutils/sed` | 0.1.1 | `experimental-bundled-extras-uutils-sed` | 1.88 |
 | `awk` | `pegasusheavy/awk-rs` | 0.1.0 | `experimental-bundled-extras-awk-rs` | 1.85 |
-| `rg` | `regex` + `pcre2` + `ignore` | — | `experimental-bundled-extras-ripgrep` | 1.88 |
-| `grep` | ripgrep adapter (overrides fastgrep when both flags enabled) | — | `experimental-bundled-extras-ripgrep` | 1.88 |
-| `egrep` | ripgrep with `-E` (overrides fastgrep when both flags enabled) | — | `experimental-bundled-extras-ripgrep` | 1.88 |
-| `fgrep` | ripgrep with `-F` (overrides fastgrep when both flags enabled) | — | `experimental-bundled-extras-ripgrep` | 1.88 |
+| `rg` / `ripgrep` | `regex` + `pcre2` + `ignore` + `globset`, clap-derive parser | — | `experimental-bundled-extras-ripgrep` | 1.88 |
+| `grep` | ripgrep adapter (GNU semantics, overrides fastgrep when both flags enabled) | — | `experimental-bundled-extras-ripgrep` | 1.88 |
+| `egrep` | ripgrep with `-E` baked in (overrides fastgrep when both flags enabled) | — | `experimental-bundled-extras-ripgrep` | 1.88 |
+| `fgrep` | ripgrep with `-F` baked in (overrides fastgrep when both flags enabled) | — | `experimental-bundled-extras-ripgrep` | 1.88 |
 | `fastgrep` | `awnion/fastgrep` | 0.1.8 | `experimental-bundled-extras-fastgrep` | **1.92** |
 | `which` | crates.io `which` | 6 | `experimental-bundled-extras-utils` | 1.88 |
 | `tree` | in-tree (uses `walkdir`) | — | `experimental-bundled-extras-utils` | 1.88 |
@@ -212,6 +212,18 @@ either engine explicitly. The headline benefit is `-P` (PCRE2) which
 fastgrep does not support. See
 [`docs/planning/bundled-extras-coverage-expansion.md`](../planning/bundled-extras-coverage-expansion.md)
 Cycle 3.
+
+**Layer 1 of `bundled-extras-cli-fidelity` (Unreleased, 2026-05-05)**
+rewrote the ripgrep adapter's argv parser using `clap`-derive,
+covering the full agent-relevant flag matrix (`-t TYPE`, `--type-list`,
+`-S`, `--column`, `-g GLOB`, `-j N`, `--passthru`, GNU `--exclude-dir`
+/ `--binary-files` / `-D` / `-d` / `-y` / `-NUM`, etc.). Mode-aware
+runtime branching: `grep` / `egrep` / `fgrep` use GNU semantics
+(no gitignore, no auto-recurse, errors on directory without `-r`);
+`rg` / `ripgrep` keep ripgrep semantics. Added `ripgrep` as a
+registered alias for `rg` so agents probing the canonical full name
+no longer hit "command not found". See
+[`docs/planning/bundled-extras-cli-fidelity.md`](../planning/bundled-extras-cli-fidelity.md).
 
 ## Section E — What this install does **NOT** include
 

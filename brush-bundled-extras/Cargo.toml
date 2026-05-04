@@ -1,7 +1,7 @@
 [package]
 name = "brush-bundled-extras"
 description = "Adapter wrappers for non-uutils-coreutils utilities bundled into brush-shell (findutils/diffutils/procps/grep/sed/awk as available)"
-version = "0.1.9"
+version = "0.2.0"
 categories.workspace = true
 edition.workspace = true
 keywords.workspace = true
@@ -74,7 +74,9 @@ default = []
     "dep:regex",
     "dep:pcre2",
     "dep:ignore",
+    "dep:globset",
     "dep:termcolor",
+    "dep:clap",
 ]
 
 # Source-grouped aggregates.
@@ -205,4 +207,5 @@ zip = { version = "5", optional = true, default-features = false, features = ["d
 regex = { version = "1", optional = true }
 pcre2 = { version = "0.2", optional = true }
 ignore = { version = "0.4", optional = true }
+globset = { version = "0.4", optional = true }
 termcolor = { version = "1", optional = true }

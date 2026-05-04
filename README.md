@@ -153,7 +153,7 @@ cargo install --locked --git https://github.com/slicingmelon/brush brush-shell
 | `experimental-bundled-extras-uutils-sed`          | `sed` from `uutils/sed@0.1.1`                                                                                                                             | all       | 1.88  |
 | `experimental-bundled-extras-awk-rs`              | `awk` from `pegasusheavy/awk-rs@0.1.0` — 100 % POSIX claim, gawk extensions, ~1.6× gawk on 100k-line sums                                                 | all       | 1.85  |
 | `experimental-bundled-extras-fastgrep`            | `grep` + `fastgrep` aliases from `awnion/fastgrep@0.1.8` — SIMD-fast, 2–12× faster than GNU grep on Criterion benchmarks; **does NOT support `-P`/PCRE2**. When combined with `-ripgrep` below, ripgrep wins for `grep`/`egrep`/`fgrep` (HashMap order) and `fastgrep` keeps its own name. | all       | **1.92** |
-| `experimental-bundled-extras-ripgrep`             | `rg` (canonical) + `grep`/`egrep`/`fgrep` from a line-based ripgrep-style adapter using `regex` + `pcre2` + `ignore` (the same crate ripgrep uses for gitignore-aware walks). **Supports `-P` (PCRE2)** — the headline reason this exists alongside fastgrep. | all       | 1.88  |
+| `experimental-bundled-extras-ripgrep`             | `rg` (and `ripgrep` as an alias) + `grep`/`egrep`/`fgrep` from a line-based ripgrep-style adapter using `regex` + `pcre2` + `ignore` + `globset` with a `clap`-derive parser covering the full agent-relevant flag matrix (`-t TYPE`, `-S`, `--column`, `-g GLOB`, GNU `--exclude-dir`, `-NUM`, etc.). **Supports `-P` (PCRE2)** — the headline reason this exists alongside fastgrep. Mode-aware: `grep` uses GNU defaults (no gitignore, no auto-recurse); `rg`/`ripgrep` keep ripgrep defaults. | all       | 1.88  |
 | `experimental-bundled-extras-utils`               | Utility quick-wins: `which` (via `which` crate), `tree` (in-tree using `walkdir`), `xxd` / `column` / `clear` (pure in-tree), `file` (via `infer`), `id` (libc on Unix, Win32 token API on Windows — fills the gap left by uutils' `cfg(unix)`-gated `uu_id`). | all       | 1.88  |
 | `experimental-bundled-extras-compression`         | Compression family: `tar` (via `tar` + `flate2`), gzip family (`gzip`/`gunzip`/`zcat`/`gzcat` via `flate2`), bzip2 family (`bzip2`/`bunzip2`/`bzcat` via `bzip2` with pure-Rust `libbz2-rs-sys` backend), xz family (`xz`/`unxz`/`xzcat` via `xz2`), zip family (`unzip`/`zipinfo` via `zip`). Archive-creation `zip` not included. | all  | 1.88  |
 | `experimental` *(umbrella)*                       | Convenience meta-feature: `experimental-builtins` + `experimental-bundled-coreutils` + `experimental-load` + `experimental-parser`                        | all       | 1.88  |
@@ -161,18 +161,24 @@ cargo install --locked --git https://github.com/slicingmelon/brush brush-shell
 **Verify both binaries:**
 
 ```bash
-brush --version    # → brush version 0.3.13 (...)
-bash  --version    # → bash (brush) version 0.3.13 (...)
+brush --version    # → brush version 0.4.1 (...)
+bash  --version    # → bash (brush) version 0.4.1 (...)
 ```
 
 **Spot-check the bundled commands:**
 
 ```bash
-brush -c 'type rg && type grep && type tar && type tree && type id && type clear'
+brush -c 'type rg && type ripgrep && type grep && type tar && type tree && type id && type clear'
 # → all "is a shell builtin"
 
 brush -c "echo 'aa1bb' | grep -P '\d'"
 # → aa1bb   (PCRE2 works via the ripgrep-backed grep)
+
+brush -c "rg -t rust 'pub fn' brush-shell/src | head -3"
+# → file-type filter (-t TYPE) works via ripgrep's own type definitions
+
+brush -c "echo APPLE | rg -S apple"
+# → smart-case (lowercase pattern matches uppercase string)
 ```
 
 **Windows path handling (MSYS-style paths just work):**
@@ -203,9 +209,19 @@ cargo uninstall brush-shell
 ```
 
 See [`CHANGELOG.FORK.md`](./CHANGELOG.FORK.md) for the full release
-notes and per-component version bumps. The latest release is **0.3.13**
-which adds MSYS-style path translation for `cd`, the `cygpath` builtin,
-and bundled tools on Windows
+notes and per-component version bumps. The latest release is **0.4.1**
+which closes the agent-friction gaps on the bundled `grep`/`rg`
+adapters: full ripgrep + GNU-grep flag matrix via a `clap`-derive
+parser (`-t TYPE`, `-S` smart-case, `--column`, `-g GLOB`, `-j N`,
+`--passthru`, `--exclude-dir`, `-NUM` shorthand, etc.); `ripgrep`
+registered as an alias of `rg`; mode-aware behavior (`grep` uses
+GNU defaults — no gitignore, no auto-recurse — while `rg`/`ripgrep`
+keep ripgrep semantics). See
+[`docs/planning/bundled-extras-cli-fidelity.md`](docs/planning/bundled-extras-cli-fidelity.md)
+for the full plan and Layer 2 (vendor `BurntSushi/ripgrep` core)
+queued behind explicit approval. The 0.4.0 release before it
+aligned the fork to upstream `brush-shell-v0.4.0`; 0.3.13 added
+MSYS-style path translation
 (see [`docs/reference/path-conversion.md`](docs/reference/path-conversion.md)).
 
 
