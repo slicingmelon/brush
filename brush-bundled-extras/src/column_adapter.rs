@@ -40,6 +40,10 @@ struct Cfg {
     inputs: Vec<String>,
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "single CLI entry point parsing argv + dispatching; splitting harms readability"
+)]
 fn run(argv: &[String]) -> Result<i32, String> {
     let mut cfg = Cfg {
         table_mode: false,

@@ -87,6 +87,10 @@ pub type BundledFn = fn(args: Vec<OsString>) -> i32;
     clippy::implicit_hasher,
     reason = "registry uses the default hasher; callers build with HashMap::new()"
 )]
+#[allow(
+    clippy::too_many_lines,
+    reason = "registry-of-registrations is naturally one big function; splitting harms readability"
+)]
 #[must_use]
 pub fn bundled_commands() -> HashMap<String, BundledFn> {
     #[allow(
@@ -365,7 +369,7 @@ fn awk_run(args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         if arg == "-F" {
             i += 1;
             let fs_arg = args.get(i).ok_or("option -F requires an argument")?;
-            field_separator = fs_arg.clone();
+            field_separator.clone_from(fs_arg);
         } else if let Some(fs) = arg.strip_prefix("-F") {
             field_separator = fs.to_string();
         } else if arg == "-v" {
@@ -446,7 +450,7 @@ fn awk_run(args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
 #[cfg(feature = "extras.awk")]
 fn print_awk_help() {
     println!(
-        r#"Usage: awk [OPTIONS] 'program' [file ...]
+        r"Usage: awk [OPTIONS] 'program' [file ...]
        awk [OPTIONS] -f progfile [file ...]
 
 A 100% POSIX-compatible AWK implementation in Rust with gawk extensions.
@@ -459,7 +463,7 @@ Options:
   -c, --traditional Traditional AWK mode (disable gawk extensions)
   --version        Print version information
   --help           Print this help message
-"#
+"
     );
 }
 
