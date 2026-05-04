@@ -648,10 +648,8 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
         // already in `child_args[2]`) is never translated; user arguments
         // begin at argv[1] of the spawned process and at index 1 of
         // `original_args`.
-        let translated = apply_path_arg_policy(
-            original_args.into_iter().skip(1),
-            &dispatch.path_arg_policy,
-        );
+        let translated =
+            apply_path_arg_policy(original_args.into_iter().skip(1), &dispatch.path_arg_policy);
         child_args.extend(translated);
         self.args = child_args;
 
@@ -1107,5 +1105,4 @@ mod tests {
         // through unchanged.
         assert_eq!(collect_strings(out), vec!["/c/foo"]);
     }
-
 }

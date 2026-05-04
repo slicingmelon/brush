@@ -55,10 +55,7 @@ fn bundled_pipeline_shares_pgid() {
     );
 
     let output = Command::new(&brush)
-        .args([
-            "-c",
-            "cat /proc/self/stat | sh -c 'ps -o pgid= -p $$'",
-        ])
+        .args(["-c", "cat /proc/self/stat | sh -c 'ps -o pgid= -p $$'"])
         .output()
         .expect("brush exec failed");
 
@@ -95,16 +92,14 @@ fn bundled_pipeline_shares_pgid() {
     let stat_line = lines
         .next()
         .expect("expected /proc/self/stat content as first line");
-    let ps_line = lines
-        .next()
-        .expect("expected ps pgid as second line");
+    let ps_line = lines.next().expect("expected ps pgid as second line");
 
-    let cat_pgid = pgid_from_proc_stat(stat_line).unwrap_or_else(|| {
-        panic!("could not parse pgid from /proc/self/stat line: {stat_line:?}")
-    });
-    let sh_pgid: i32 = ps_line.trim().parse().unwrap_or_else(|e| {
-        panic!("could not parse ps pgid from line {ps_line:?}: {e}")
-    });
+    let cat_pgid = pgid_from_proc_stat(stat_line)
+        .unwrap_or_else(|| panic!("could not parse pgid from /proc/self/stat line: {stat_line:?}"));
+    let sh_pgid: i32 = ps_line
+        .trim()
+        .parse()
+        .unwrap_or_else(|e| panic!("could not parse ps pgid from line {ps_line:?}: {e}"));
 
     assert_eq!(
         cat_pgid, sh_pgid,
@@ -124,10 +119,7 @@ fn pgid_parser_handles_complex_comm() {
         pgid_from_proc_stat("1234 (some weird (comm) name) S 1 5678 ..."),
         Some(5678),
     );
-    assert_eq!(
-        pgid_from_proc_stat("1 (init) S 0 1 1 0 ..."),
-        Some(1),
-    );
+    assert_eq!(pgid_from_proc_stat("1 (init) S 0 1 1 0 ..."), Some(1),);
     assert_eq!(pgid_from_proc_stat("not stat"), None);
     assert_eq!(pgid_from_proc_stat(""), None);
 }

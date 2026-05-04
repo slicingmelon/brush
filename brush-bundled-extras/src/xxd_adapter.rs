@@ -115,7 +115,13 @@ fn run(argv: &[String]) -> Result<i32, String> {
     if cfg.reverse {
         write_reverse(&buf, &mut out)?;
     } else if cfg.c_include {
-        write_c_include(cfg.input.as_deref(), &buf, cfg.cols, cfg.uppercase, &mut out)?;
+        write_c_include(
+            cfg.input.as_deref(),
+            &buf,
+            cfg.cols,
+            cfg.uppercase,
+            &mut out,
+        )?;
     } else if cfg.postscript {
         write_postscript(&buf, cfg.cols, cfg.uppercase, &mut out)?;
     } else {

@@ -42,27 +42,27 @@ use std::ffi::OsString;
 #[cfg(feature = "extras.grep")]
 mod grep_adapter;
 
-#[cfg(feature = "extras.which")]
-mod which_adapter;
-#[cfg(feature = "extras.tree")]
-mod tree_adapter;
-#[cfg(feature = "extras.xxd")]
-mod xxd_adapter;
+#[cfg(feature = "extras.clear")]
+mod clear_adapter;
 #[cfg(feature = "extras.column")]
 mod column_adapter;
 #[cfg(feature = "extras.file")]
 mod file_adapter;
 #[cfg(feature = "extras.id")]
 mod id_adapter;
-#[cfg(feature = "extras.clear")]
-mod clear_adapter;
+#[cfg(feature = "extras.tree")]
+mod tree_adapter;
+#[cfg(feature = "extras.which")]
+mod which_adapter;
+#[cfg(feature = "extras.xxd")]
+mod xxd_adapter;
 
-#[cfg(feature = "extras.tar")]
-mod tar_adapter;
-#[cfg(feature = "extras.gzip")]
-mod gzip_adapter;
 #[cfg(feature = "extras.bzip2")]
 mod bzip2_adapter;
+#[cfg(feature = "extras.gzip")]
+mod gzip_adapter;
+#[cfg(feature = "extras.tar")]
+mod tar_adapter;
 #[cfg(feature = "extras.xz")]
 mod xz_adapter;
 #[cfg(feature = "extras.zip")]
@@ -145,7 +145,10 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     }
     #[cfg(feature = "extras.column")]
     {
-        m.insert("column".to_string(), column_adapter::column_main as BundledFn);
+        m.insert(
+            "column".to_string(),
+            column_adapter::column_main as BundledFn,
+        );
     }
     #[cfg(feature = "extras.file")]
     {
@@ -182,7 +185,10 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     #[cfg(feature = "extras.bzip2")]
     {
         m.insert("bzip2".to_string(), bzip2_adapter::bzip2_main as BundledFn);
-        m.insert("bunzip2".to_string(), bzip2_adapter::bunzip2_main as BundledFn);
+        m.insert(
+            "bunzip2".to_string(),
+            bzip2_adapter::bunzip2_main as BundledFn,
+        );
         m.insert("bzcat".to_string(), bzip2_adapter::bzcat_main as BundledFn);
     }
     #[cfg(feature = "extras.xz")]
@@ -194,7 +200,10 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     #[cfg(feature = "extras.zip")]
     {
         m.insert("unzip".to_string(), zip_adapter::unzip_main as BundledFn);
-        m.insert("zipinfo".to_string(), zip_adapter::zipinfo_main as BundledFn);
+        m.insert(
+            "zipinfo".to_string(),
+            zip_adapter::zipinfo_main as BundledFn,
+        );
     }
 
     // Cycle 3 (bundled-extras-coverage-expansion). ripgrep replaces
@@ -212,8 +221,14 @@ pub fn bundled_commands() -> HashMap<String, BundledFn> {
     {
         m.insert("rg".to_string(), ripgrep_adapter::rg_main as BundledFn);
         m.insert("grep".to_string(), ripgrep_adapter::grep_main as BundledFn);
-        m.insert("egrep".to_string(), ripgrep_adapter::egrep_main as BundledFn);
-        m.insert("fgrep".to_string(), ripgrep_adapter::fgrep_main as BundledFn);
+        m.insert(
+            "egrep".to_string(),
+            ripgrep_adapter::egrep_main as BundledFn,
+        );
+        m.insert(
+            "fgrep".to_string(),
+            ripgrep_adapter::fgrep_main as BundledFn,
+        );
     }
 
     m

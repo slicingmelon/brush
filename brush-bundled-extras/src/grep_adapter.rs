@@ -96,8 +96,7 @@ pub(crate) fn grep_main(args: Vec<OsString>) -> i32 {
             // convention rather than calling `e.exit()` (which would
             // bypass brush's centralized exit-site contract).
             let exit = match e.kind() {
-                clap::error::ErrorKind::DisplayHelp
-                | clap::error::ErrorKind::DisplayVersion => 0,
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => 0,
                 _ => 2,
             };
             let _ = e.print();
@@ -187,7 +186,11 @@ pub(crate) fn grep_main(args: Vec<OsString>) -> i32 {
 
     let result = run_files(config, pattern, output_config, no_messages);
     // If there were path errors, exit code 2 takes precedence over "no match" (1)
-    if has_path_error && result != 0 { 2 } else { result }
+    if has_path_error && result != 0 {
+        2
+    } else {
+        result
+    }
 }
 
 fn run_single_file(
@@ -200,16 +203,16 @@ fn run_single_file(
     let stdout = std::io::stdout().lock();
     let mut writer = BufWriter::new(stdout);
 
-    let count =
-        match search_file_streaming(path, pattern, invert_match, output_config, &mut writer) {
-            Ok(c) => c,
-            Err(e) => {
-                if e.kind() != std::io::ErrorKind::BrokenPipe && !no_messages {
-                    eprintln!("grep: {}: {e}", path.display());
-                }
-                return 2;
+    let count = match search_file_streaming(path, pattern, invert_match, output_config, &mut writer)
+    {
+        Ok(c) => c,
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::BrokenPipe && !no_messages {
+                eprintln!("grep: {}: {e}", path.display());
             }
-        };
+            return 2;
+        }
+    };
 
     let _ = writer.flush();
     if count > 0 { 0 } else { 1 }
@@ -225,8 +228,11 @@ fn run_stdin(
     let mut stdin = std::io::stdin().lock();
 
     // Default stdin label to "(standard input)" when -H is active (matches GNU grep)
-    let effective_label =
-        if output_config.multi_file { Some(label.unwrap_or("(standard input)")) } else { label };
+    let effective_label = if output_config.multi_file {
+        Some(label.unwrap_or("(standard input)"))
+    } else {
+        label
+    };
     let label_path = effective_label.map(std::path::PathBuf::from);
     let effective_config = output_config;
 
@@ -263,16 +269,16 @@ fn run_stdin(
         && !effective_config.quiet;
     let count_only =
         effective_config.count || effective_config.files_with_matches || effective_config.quiet;
-    let mut result =
-        match search_reader(&mut stdin, pattern, invert_match, need_ranges, count_only) {
-            Ok(r) => r,
-            Err(e) => {
-                if !no_messages {
-                    eprintln!("grep: (stdin): {e}");
-                }
-                return 2;
+    let mut result = match search_reader(&mut stdin, pattern, invert_match, need_ranges, count_only)
+    {
+        Ok(r) => r,
+        Err(e) => {
+            if !no_messages {
+                eprintln!("grep: (stdin): {e}");
             }
-        };
+            return 2;
+        }
+    };
 
     if let Some(ref lp) = label_path {
         result.path.clone_from(lp);
@@ -283,8 +289,12 @@ fn run_stdin(
     if !effective_config.quiet {
         let stdout = std::io::stdout().lock();
         let mut writer = BufWriter::new(stdout);
-        if let Err(e) = format_result(&result, effective_config, &mut writer, TAB_FIELD_WIDTH_STDIN)
-            && e.kind() != std::io::ErrorKind::BrokenPipe
+        if let Err(e) = format_result(
+            &result,
+            effective_config,
+            &mut writer,
+            TAB_FIELD_WIDTH_STDIN,
+        ) && e.kind() != std::io::ErrorKind::BrokenPipe
             && !no_messages
         {
             eprintln!("grep: write error: {e}");
@@ -307,10 +317,13 @@ fn run_files(
     let max_file_size = config.max_file_size;
 
     // --- Trigram index: load and compute candidate filter ---
-    let search_root = config
-        .paths
-        .first()
-        .and_then(|p| if config.recursive { std::fs::canonicalize(p).ok() } else { None });
+    let search_root = config.paths.first().and_then(|p| {
+        if config.recursive {
+            std::fs::canonicalize(p).ok()
+        } else {
+            None
+        }
+    });
 
     let (candidate_filter, index_loaded) = if !no_index && let Some(ref root) = search_root {
         let trigrams = pattern.required_trigrams();
@@ -353,38 +366,39 @@ fn run_files(
     let skipped_for_walker = Arc::clone(&skipped_files);
 
     let filter_for_walker = candidate_filter;
-    let walker_handle = match std::thread::Builder::new()
-        .name("fg-walker".into())
-        .spawn(move || {
-            let (tx_inner, rx_inner) = bounded::<PathBuf>(256);
-            std::thread::scope(|s| {
-                let config_ref = &config;
-                let skipped_ref = &skipped_for_walker;
-                s.spawn(|| {
-                    let walk_threads = (config_ref.threads / 4).clamp(2, 4);
-                    walk(config_ref, tx_inner, walk_threads, skipped_ref);
+    let walker_handle =
+        match std::thread::Builder::new()
+            .name("fg-walker".into())
+            .spawn(move || {
+                let (tx_inner, rx_inner) = bounded::<PathBuf>(256);
+                std::thread::scope(|s| {
+                    let config_ref = &config;
+                    let skipped_ref = &skipped_for_walker;
+                    s.spawn(|| {
+                        let walk_threads = (config_ref.threads / 4).clamp(2, 4);
+                        walk(config_ref, tx_inner, walk_threads, skipped_ref);
+                    });
+                    for p in rx_inner {
+                        if let Some(ref filter) = filter_for_walker
+                            && !filter.contains(&p)
+                        {
+                            continue;
+                        }
+                        if let Some(ref wtx) = walked_send {
+                            let _ = wtx.send(p.clone());
+                        }
+                        let _ = path_tx.send(p);
+                    }
                 });
-                for p in rx_inner {
-                    if let Some(ref filter) = filter_for_walker
-                        && !filter.contains(&p)
-                    {
-                        continue;
-                    }
-                    if let Some(ref wtx) = walked_send {
-                        let _ = wtx.send(p.clone());
-                    }
-                    let _ = path_tx.send(p);
-                }
-            });
-            // Drop walked_send to close the channel
-            drop(walked_send);
-        }) {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("grep: failed to spawn walker thread: {e}");
-            return 2;
-        }
-    };
+                // Drop walked_send to close the channel
+                drop(walked_send);
+            }) {
+            Ok(h) => h,
+            Err(e) => {
+                eprintln!("grep: failed to spawn walker thread: {e}");
+                return 2;
+            }
+        };
 
     // Shared stdout writer behind a mutex — workers flush per-file buffers here.
     let shared_writer = Arc::new(Mutex::new(BufWriter::new(std::io::stdout())));
@@ -471,7 +485,10 @@ fn run_files(
             let _ = writer.flush();
         } else {
             eprintln!();
-            eprintln!("WARNING: {} file(s) skipped due to size limit:", skipped.len());
+            eprintln!(
+                "WARNING: {} file(s) skipped due to size limit:",
+                skipped.len()
+            );
             for sf in skipped.iter() {
                 let size_mb = sf.size as f64 / (1024.0 * 1024.0);
                 eprintln!("  - {} ({:.1} MB)", sf.path.display(), size_mb);
@@ -483,5 +500,9 @@ fn run_files(
         }
     }
 
-    if found_match.load(Ordering::Relaxed) { 0 } else { 1 }
+    if found_match.load(Ordering::Relaxed) {
+        0
+    } else {
+        1
+    }
 }

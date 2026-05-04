@@ -53,7 +53,5 @@ pub fn display_name() -> String {
 
 pub(crate) fn get_product_display_str() -> String {
     let name = display_name();
-    std::format!(
-        "{name} version {PRODUCT_VERSION} ({PRODUCT_GIT_VERSION}) - {PRODUCT_DISPLAY_URI}"
-    )
+    std::format!("{name} version {PRODUCT_VERSION} ({PRODUCT_GIT_VERSION}) - {PRODUCT_DISPLAY_URI}")
 }

@@ -314,8 +314,9 @@ fn path_arg_policy_for(name: &str) -> PathArgPolicy {
         | "expand" | "unexpand" | "fmt" | "fold" | "pr" | "cp" | "mv" | "rm" | "ln" | "mkdir"
         | "rmdir" | "touch" | "chmod" | "chown" | "chgrp" | "stat" | "realpath" | "readlink"
         | "ls" | "dir" | "vdir" | "du" | "df" | "tree" | "which" | "file" | "xxd" | "column"
-        | "basename" | "dirname" | "install" | "mktemp" | "shred" | "truncate" | "sync"
-        | "cmp" => PathArgPolicy::Heuristic,
+        | "basename" | "dirname" | "install" | "mktemp" | "shred" | "truncate" | "sync" | "cmp" => {
+            PathArgPolicy::Heuristic
+        }
         // find: only the starting-point arg in position 1 is a path.
         // Predicates and predicate values come after and must be left
         // alone (a predicate value like `-name '/foo'` would be
@@ -339,15 +340,11 @@ fn path_arg_policy_for(name: &str) -> PathArgPolicy {
 /// to completion) is preserved as a defensive fallback for builds where
 /// the dispatch field is somehow ignored, but on the normal call path
 /// `shim_execute` is unreachable.
-fn shim_registration_for<SE: ShellExtensions>(
-    exe_path: PathBuf,
-    name: &str,
-) -> Registration<SE> {
-    brush_core::builtins::raw_builtin::<SE>(shim_execute::<SE>, shim_content)
-        .with_bundled_dispatch(
-            BundledDispatch::new(exe_path, DISPATCH_FLAG)
-                .with_path_arg_policy(path_arg_policy_for(name)),
-        )
+fn shim_registration_for<SE: ShellExtensions>(exe_path: PathBuf, name: &str) -> Registration<SE> {
+    brush_core::builtins::raw_builtin::<SE>(shim_execute::<SE>, shim_content).with_bundled_dispatch(
+        BundledDispatch::new(exe_path, DISPATCH_FLAG)
+            .with_path_arg_policy(path_arg_policy_for(name)),
+    )
 }
 
 /// Registers a shim builtin for every name in the installed bundled-command

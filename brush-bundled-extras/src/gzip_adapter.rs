@@ -18,9 +18,9 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
+use flate2::Compression;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
-use flate2::Compression;
 
 pub(crate) fn gzip_main(args: Vec<OsString>) -> i32 {
     run(args, Mode::Compress)
@@ -84,7 +84,12 @@ fn run(args: Vec<OsString>, default: Mode) -> i32 {
     }
 
     if paths.is_empty() {
-        return run_stream(mode, level, &mut io::stdin().lock(), &mut io::stdout().lock());
+        return run_stream(
+            mode,
+            level,
+            &mut io::stdin().lock(),
+            &mut io::stdout().lock(),
+        );
     }
 
     let mut any_err = false;
@@ -207,10 +212,12 @@ fn strip_gz(p: &Path) -> io::Result<PathBuf> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "non-UTF-8 filename"))?;
     let stripped = name
         .strip_suffix(".gz")
-        .or_else(|| name.strip_suffix(".tgz").map(|s| {
-            // .tgz -> .tar
-            Box::leak(format!("{s}.tar").into_boxed_str()) as &str
-        }))
+        .or_else(|| {
+            name.strip_suffix(".tgz").map(|s| {
+                // .tgz -> .tar
+                Box::leak(format!("{s}.tar").into_boxed_str()) as &str
+            })
+        })
         .ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::InvalidInput,
